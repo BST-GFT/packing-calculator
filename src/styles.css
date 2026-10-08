@@ -1,22 +1,27 @@
 /*
- * The result is drawn like a shipping label: white stock, heavy ink rules,
- * condensed type and solid tags for the box codes. Cardboard brown appears
- * only where there is cardboard, in the packing drawings.
+ * The result is drawn like a shipping label: white stock, heavy rules,
+ * condensed type and solid tags for the box codes. Company colours go on
+ * headings and details only: BEST purple for titles, tags and rules, BEST
+ * orange for the line under the header and the focus ring (it is too light
+ * for small text on white). Cardboard brown appears only where there is
+ * cardboard, in the packing drawings.
  */
 
 :root {
   color-scheme: light;
-  --floor: #e6e9ec;
+  --floor: #ecebf0;
   --paper: #ffffff;
-  --ink: #14263a;
-  --ink-soft: #51606f;
-  --rule: #c3cbd3;
-  --blue: #1b5fc1;
+  --ink: #1f1b29;
+  --ink-soft: #5c5868;
+  --rule: #d2cfd9;
+  --purple: #341f62;
+  --orange: #f16620;
+  --hover: #f1eef7;
   --tape: #f6c445;
   --kraft: #d8b888;
   --kraft-edge: #94713f;
   --unit: #fffdf7;
-  --unit-turned: #c9dcf4;
+  --unit-turned: #dcd3ef;
   --text: 'Barlow', 'Segoe UI', Roboto, Arial, sans-serif;
   --display: 'Barlow Condensed', 'Arial Narrow', 'Roboto Condensed', Arial, sans-serif;
 }
@@ -54,7 +59,7 @@ input {
 }
 
 :focus-visible {
-  outline: 3px solid var(--blue);
+  outline: 3px solid var(--orange);
   outline-offset: 2px;
 }
 
@@ -71,23 +76,41 @@ input {
 
 .top {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 20px;
-  background: var(--ink);
-  color: #fff;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 10px 16px;
+  border-bottom: 4px solid var(--orange);
+  background: var(--paper);
+}
+
+.logo {
+  display: block;
+  width: auto;
+  height: 32px;
 }
 
 .top h1 {
-  font: 600 24px/1.1 var(--display);
+  color: var(--purple);
+  font: 600 19px/1.1 var(--display);
   letter-spacing: 0.01em;
 }
 
-.top span {
-  font-size: 14px;
-  opacity: 0.75;
-  white-space: nowrap;
+@media (min-width: 900px) {
+  .top {
+    gap: 20px;
+    padding: 12px 24px;
+  }
+
+  .logo {
+    height: 46px;
+  }
+
+  .top h1 {
+    padding-left: 20px;
+    border-left: 2px solid var(--rule);
+    font-size: 26px;
+  }
 }
 
 .page {
@@ -130,6 +153,7 @@ fieldset,
 
 legend,
 summary {
+  color: var(--purple);
   font: 600 22px/1.1 var(--display);
 }
 
@@ -172,14 +196,14 @@ summary small {
 .control {
   display: flex;
   align-items: center;
-  border: 1.5px solid #93a0ad;
+  border: 1.5px solid #9b97a6;
   border-radius: 4px;
   background: #fff;
 }
 
 .control:focus-within {
-  border-color: var(--blue);
-  box-shadow: 0 0 0 2px var(--blue);
+  border-color: var(--orange);
+  box-shadow: 0 0 0 2px var(--orange);
 }
 
 .control input {
@@ -240,7 +264,7 @@ summary small {
 
 .segmented {
   display: flex;
-  border: 1.5px solid var(--ink);
+  border: 1.5px solid var(--purple);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -257,11 +281,11 @@ summary small {
 }
 
 .segmented button + button {
-  border-left: 1.5px solid var(--ink);
+  border-left: 1.5px solid var(--purple);
 }
 
 .segmented button[aria-pressed='true'] {
-  background: var(--ink);
+  background: var(--purple);
   color: #fff;
 }
 
@@ -277,7 +301,7 @@ summary small {
   width: 22px;
   height: 22px;
   margin: 1px 0 0;
-  accent-color: var(--ink);
+  accent-color: var(--purple);
 }
 
 .check small {
@@ -314,7 +338,7 @@ summary small {
 
 .empty {
   padding: 40px 24px;
-  border: 2px dashed #9aa7b4;
+  border: 2px dashed #a5a1b0;
   border-radius: 6px;
   color: var(--ink-soft);
   font-size: 18px;
@@ -325,7 +349,7 @@ summary small {
   display: inline-block;
   min-width: 2.1em;
   padding: 1px 8px 2px;
-  background: var(--ink);
+  background: var(--purple);
   color: #fff;
   font: 600 1.1em/1.25 var(--display);
   letter-spacing: 0.02em;
@@ -333,13 +357,13 @@ summary small {
 }
 
 .plan {
-  border: 2px solid var(--ink);
+  border: 2px solid var(--purple);
   border-radius: 6px;
   background: var(--paper);
 }
 
 .plan > * + * {
-  border-top: 2px solid var(--ink);
+  border-top: 2px solid var(--purple);
 }
 
 .plan-head {
@@ -352,6 +376,7 @@ summary small {
 }
 
 .plan-head h2 {
+  color: var(--purple);
   font: 600 clamp(30px, 6vw, 46px) / 1.02 var(--display);
 }
 
@@ -363,9 +388,10 @@ summary small {
 .print {
   height: 40px;
   padding: 0 14px;
-  border: 1.5px solid var(--ink);
+  border: 1.5px solid var(--purple);
   border-radius: 4px;
   background: #fff;
+  color: var(--purple);
   cursor: pointer;
   font-weight: 500;
   white-space: nowrap;
@@ -373,7 +399,7 @@ summary small {
 
 .print:hover,
 .alternatives button:hover {
-  background: #eef2f6;
+  background: var(--hover);
 }
 
 .facts {
@@ -437,6 +463,7 @@ summary small {
 
 .how h3 {
   margin-bottom: 12px;
+  color: var(--purple);
   font-size: 16px;
   font-weight: 600;
 }
@@ -457,7 +484,7 @@ summary small {
 
 .alternatives button {
   padding: 8px 12px;
-  border: 1.5px solid var(--ink);
+  border: 1.5px solid var(--purple);
   border-radius: 4px;
   background: #fff;
   color: var(--ink);
@@ -555,6 +582,7 @@ summary small {
 }
 
 .capacity h2 {
+  color: var(--purple);
   font: 600 22px/1.1 var(--display);
 }
 
@@ -566,7 +594,7 @@ table {
 
 thead th {
   padding: 6px 8px 6px 0;
-  border-bottom: 2px solid var(--ink);
+  border-bottom: 2px solid var(--purple);
   color: var(--ink-soft);
   font-size: 13px;
   font-weight: 500;
@@ -612,7 +640,7 @@ th:last-child {
   padding: 4px 0;
   border: 0;
   background: none;
-  color: var(--blue);
+  color: var(--purple);
   cursor: pointer;
   font-size: 15px;
   font-weight: 500;
@@ -641,15 +669,12 @@ th:last-child {
   .inputs,
   .print,
   .alternatives,
-  .capacity,
-  .top span {
+  .capacity {
     display: none;
   }
 
   .top {
     padding: 0 0 8px;
-    background: none;
-    color: var(--ink);
   }
 
   .page {

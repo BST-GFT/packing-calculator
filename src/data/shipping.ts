@@ -14,10 +14,12 @@ export interface ShippingMode {
 }
 
 /**
+ * Transportadora allows 30 kg per box, the same as Correios (confirmed by
+ * Francesco, 2026-10-08).
+ *
  * TO CONFIRM with logistics and the contracts in use:
- *   - Transportadora: the 25 kg limit comes from the sales prototype. The
- *     300 kg/m³ factor is the usual one for road freight; parcel carriers
- *     often use 167 instead.
+ *   - Transportadora: the 300 kg/m³ factor is the usual one for road freight;
+ *     parcel carriers often use 167 instead.
  *   - Correios: 30 kg, 100 cm per side and 200 cm for the three sides added
  *     are the published PAC/SEDEX limits. Cubed weight is C × L × A / 6000,
  *     charged per parcel. Sources disagree on whether it is ignored up to
@@ -27,7 +29,7 @@ export const SHIPPING_MODES: ShippingMode[] = [
   {
     id: 'transportadora',
     label: 'Transportadora',
-    maxGrossKg: 25,
+    maxGrossKg: 30,
     maxSideCm: 0,
     maxSumCm: 0,
     cubage: { kgPerM3: 300, scope: 'shipment', ignoreUpToKg: 0 },

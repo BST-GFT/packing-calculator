@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useId, useMemo, useState } from 'react'
 
+import logoUrl from './assets/logo.jpg'
 import { BOXES, BOX_PENALTY_LITERS, DEFAULT_LOSS_CM } from './data/boxes.ts'
 import { SHIPPING_MODES, boxAllowed, type ShippingMode } from './data/shipping.ts'
 import {
@@ -75,10 +76,6 @@ export function App() {
     BOXES.every((b) => b.costBRL !== undefined) ? 'cost' : 'balanced',
   )
   const [open, setOpen] = useState<string | null>(null)
-  // On a phone the shipping settings start folded so the result is close to the product fields.
-  const [shippingOpen, setShippingOpen] = useState(
-    () => window.matchMedia('(min-width: 900px)').matches,
-  )
 
   useEffect(() => {
     try {
@@ -172,8 +169,8 @@ export function App() {
   return (
     <>
       <header className="top">
+        <img className="logo" src={logoUrl} alt="Best Shipping" width={638} height={144} />
         <h1>Calculadora de embalagem</h1>
-        <span>Best Gift</span>
       </header>
 
       <main className="page">
@@ -213,11 +210,8 @@ export function App() {
             </label>
           </fieldset>
 
-          <details
-            className="panel"
-            open={shippingOpen}
-            onToggle={(e) => setShippingOpen(e.currentTarget.open)}
-          >
+          {/* Starts folded: the shipping settings are set once and rarely change. */}
+          <details className="panel">
             <summary>
               Envio
               <small>
@@ -239,7 +233,7 @@ export function App() {
               suffix="cm"
               value={loss}
               onChange={setLoss}
-              hint="Descontada de cada medida da caixa: espessura do papelão e proteção."
+              hint="Descontada de cada medida interna da caixa, para proteção ou para o encaixe não ficar justo."
             />
             <div className="boxes">
               <span className="field-label">Caixas disponíveis</span>

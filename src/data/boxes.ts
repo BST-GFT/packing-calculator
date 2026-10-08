@@ -1,7 +1,7 @@
 import type { BoxType } from '../engine/types.ts'
 
 /**
- * The shipping boxes in stock. Measurements in cm, weights in kg.
+ * The shipping boxes in stock. Internal measurements in cm, weights in kg.
  *
  * To add, remove or change a box, edit this list and push. Optional fields:
  *   maxWeightKg  a weight limit for this box alone
@@ -17,10 +17,11 @@ export const BOXES: BoxType[] = [
 
 /**
  * Space lost on each box dimension, in cm, before anything is packed.
- * TO CONFIRM: 0.5 assumes the measurements above are external. If they are
- * internal, set this to 0.
+ * The measurements above are internal (checked by measuring a box), so no
+ * cardboard thickness is taken off. Users can still set a loss on the page
+ * for padding or a looser fit.
  */
-export const DEFAULT_LOSS_CM = 0.5
+export const DEFAULT_LOSS_CM = 0
 
 /**
  * How much box volume, in litres, one extra box is worth when the calculator

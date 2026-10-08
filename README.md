@@ -24,7 +24,7 @@ npm run build    # writes the publishable page to dist/
 
 | Path | What it holds |
 | --- | --- |
-| `src/data/boxes.ts` | The boxes in stock, and two numbers to calibrate |
+| `src/data/boxes.ts` | The boxes in stock (internal measurements), and one number to calibrate |
 | `src/data/shipping.ts` | Limits and cubed-weight rules per shipping mode |
 | `src/engine/` | The calculation. No interface code, fully tested |
 | `src/App.tsx`, `src/ui/` | The page |
@@ -67,9 +67,6 @@ Settings > Pages and set Source to "GitHub Actions".
 
 These are marked `TO CONFIRM` or `TO CALIBRATE` in `src/data/`:
 
-- Whether the box measurements are internal or external. `DEFAULT_LOSS_CM`
-  is 0.5 on the assumption they are external.
-- The weight limit per box for carrier shipments (25 kg for now).
 - The cubed-weight factor the carriers in use apply (300 kg/m³ for now).
 - For Correios, whether cubed weight is ignored up to 5 kg or 10 kg.
 - `BOX_PENALTY_LITERS`: how much volume one extra box is worth.

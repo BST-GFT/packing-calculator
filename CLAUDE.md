@@ -41,8 +41,7 @@ npm run build    # output in dist/
   `deploy.yml`, which deploys to GitHub Pages.
 - Not done yet: in the GitHub repo, Settings > Pages > Source must be set to
   "GitHub Actions" before the first publish. Nothing has been merged to `main`.
-- Not done yet: `package-lock.json` is not committed. Commit the one the first
-  `npm install` creates; the workflows switch to `npm ci` once it exists.
+- `package-lock.json` is committed, so the workflows install with `npm ci`.
 
 ## Layout
 
@@ -53,6 +52,7 @@ npm run build    # output in dist/
 | `src/data/shipping.ts` | Weight and size limits and cubed-weight rule per shipping mode |
 | `src/App.tsx`, `src/ui/` | The page |
 | `src/styles.css` | All styling, plain CSS |
+| `src/assets/logo.jpg` | Best Shipping logo, trimmed and scaled for the header |
 
 ## Code conventions
 
@@ -71,10 +71,16 @@ npm run build    # output in dist/
 
 ## Design direction
 
-The result is drawn like a shipping label: white stock, heavy ink rules,
+The result is drawn like a shipping label: white stock, heavy rules,
 condensed type (Barlow Condensed) and solid tags for the box codes. Cardboard
 brown appears only in the packing drawings. Inputs stay quiet. Keep touch
 targets large and numeric keyboards on phones; decimals accept a comma.
+
+Company colours go on headings and details only, not on large areas: BEST
+purple `#341F62` for titles, tags, rules and selected buttons; BEST orange
+`#F16620` for the line under the header and the focus ring. Orange is too
+light for small text on white. The logo sits on a white header bar, the
+background it was drawn for.
 
 ## Decisions made
 
@@ -91,6 +97,12 @@ targets large and numeric keyboards on phones; decimals accept a comma.
   with the link may open it.
 - No third-party packing library. pyshipping is unmaintained and its packing
   code is licensed for research use only.
+- The box measurements in `src/data/boxes.ts` are internal (Francesco measured
+  a box, 2026-10-08), so `DEFAULT_LOSS_CM` is 0. The page still lets users set
+  a loss for padding or a looser fit.
+- Transportadora allows 30 kg per box, the same as Correios (2026-10-08).
+- The "Envio" settings start folded on every screen size; they are set once
+  and rarely change.
 
 ## The sales prototype
 
@@ -108,19 +120,14 @@ box first) fits fewer units than this engine and was not reused.
 
 Marked `TO CONFIRM` or `TO CALIBRATE` in `src/data/`. Ask before assuming:
 
-1. Are the box measurements internal or external? `DEFAULT_LOSS_CM` is 0.5 on
-   the assumption they are external. It matters: at 0.5 a 40 cm item does not
-   fit box P.
-2. Is 25 kg the right weight limit per box for carrier shipments? Correios is
-   30 kg.
-3. Which cubed-weight factor do the carriers in use apply? 300 kg/m³ is set;
+1. Which cubed-weight factor do the carriers in use apply? 300 kg/m³ is set;
    parcel carriers often use 167.
-4. For Correios, is cubed weight ignored up to 5 kg or up to 10 kg? Sources
+2. For Correios, is cubed weight ignored up to 5 kg or up to 10 kg? Sources
    disagree; 5 is set because it never underestimates.
-5. Does sales need several products in one calculation? A middle option is
+3. Does sales need several products in one calculation? A middle option is
    several products per order, each packed in its own boxes, with combined
    totals.
-6. How much volume is one extra box worth (`BOX_PENALTY_LITERS`)? A cost per
+4. How much volume is one extra box worth (`BOX_PENALTY_LITERS`)? A cost per
    box plus freight would replace the guess: every box can take a `costBRL`
    and the engine already has a lowest-cost priority.
 
@@ -131,6 +138,5 @@ Marked `TO CONFIRM` or `TO CALIBRATE` in `src/data/`. Ask before assuming:
 - The calculation is geometric only: no fragility, crushing or bulging.
 - Orders above 2,000,000 units are bulk-filled before the exact search, so the
   box mix is near-best rather than exact at that size.
-- The page has only been checked in a browser with fallback fonts and a
-  different bundler. Its look with Barlow loaded, and on a real phone, has not
-  been reviewed.
+- The page has been checked with Barlow loaded in a desktop browser, including
+  phone-width emulation (375 and 320 px), but not on a real phone.
