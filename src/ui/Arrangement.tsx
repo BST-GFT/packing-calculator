@@ -1,10 +1,18 @@
+import { lazy, Suspense } from 'react'
+
 import type { BoxFit, LayerType } from '../engine/index.ts'
 import { ALONG, AXIS, count, num } from './format.ts'
+
+// three.js is large, so the 3D view is fetched only once a box is shown.
+const Box3D = lazy(() => import('./Box3D.tsx').then((m) => ({ default: m.Box3D })))
 
 /** Beyond this many units a layer is described in words instead of drawn. */
 const MAX_DRAWN = 1500
 
-/** How to arrange the units inside one box: a drawing and a line of text per kind of layer. */
+/**
+ * How to arrange the units inside one box: the whole box in 3D, then a drawing
+ * and a line of text per kind of layer.
+ */
 export function Arrangement({ fit }: { fit: BoxFit }) {
   if (fit.spaceCapacity === 0) return null
   const upright = fit.stackAxis === 'height'
@@ -12,10 +20,13 @@ export function Arrangement({ fit }: { fit: BoxFit }) {
 
   return (
     <div className="arrangement">
+      <Suspense fallback={<div className="view3d-canvas view3d-loading">Carregando 3D…</div>}>
+        <Box3D fit={fit} />
+      </Suspense>
       {!upright && (
         <p className="note">
-          Nesta caixa cabe mais com as camadas em pé, uma atrás da outra {ALONG[fit.stackAxis]}. O
-          desenho mostra a caixa vista de lado.
+          Nesta caixa cabe mais com as camadas em pé, uma atrás da outra {ALONG[fit.stackAxis]}. Os
+          desenhos das camadas mostram a caixa vista de lado.
         </p>
       )}
       {fit.limitedBy === 'weight' && (

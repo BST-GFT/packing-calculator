@@ -14,8 +14,8 @@ export interface ShippingMode {
 }
 
 /**
- * Transportadora allows 30 kg per box, the same as Correios (confirmed by
- * Francesco, 2026-10-08).
+ * Transportadora allows 25 kg per box (confirmed by Francesco, 2026-10-08,
+ * after briefly trying 30 kg).
  *
  * TO CONFIRM with logistics and the contracts in use:
  *   - Transportadora: the 300 kg/m³ factor is the usual one for road freight;
@@ -29,7 +29,7 @@ export const SHIPPING_MODES: ShippingMode[] = [
   {
     id: 'transportadora',
     label: 'Transportadora',
-    maxGrossKg: 30,
+    maxGrossKg: 25,
     maxSideCm: 0,
     maxSumCm: 0,
     cubage: { kgPerM3: 300, scope: 'shipment', ignoreUpToKg: 0 },
