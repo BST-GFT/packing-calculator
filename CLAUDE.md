@@ -51,6 +51,7 @@ npm run build    # output in dist/
 | `src/data/boxes.ts` | Stock boxes, internal loss, box penalty |
 | `src/data/shipping.ts` | Weight and size limits and cubed-weight rule per shipping mode |
 | `src/App.tsx`, `src/ui/` | The page |
+| `src/ui/Box3D.tsx` | The 3D view of a packed box (three.js), loaded on demand |
 | `src/styles.css` | All styling, plain CSS |
 | `src/assets/logo.jpg` | Best Shipping logo, trimmed and scaled for the header |
 
@@ -67,7 +68,9 @@ npm run build    # output in dist/
   its inputs and outputs are in cm and kg.
 - New engine behaviour gets a test in `src/engine/engine.test.ts`. Prefer
   tests that check a layout is physically valid over tests that pin a number.
-- No new dependencies without a reason. The page is React and plain CSS only.
+- No new dependencies without a reason. The page is React and plain CSS, plus
+  three.js for the 3D view. three.js is imported only from `src/ui/Box3D.tsx`,
+  which is loaded lazily so the first page load stays small.
 
 ## Design direction
 
@@ -100,9 +103,16 @@ background it was drawn for.
 - The box measurements in `src/data/boxes.ts` are internal (Francesco measured
   a box, 2026-10-08), so `DEFAULT_LOSS_CM` is 0. The page still lets users set
   a loss for padding or a looser fit.
-- Transportadora allows 30 kg per box, the same as Correios (2026-10-08).
+- Transportadora allows 25 kg per box; Correios stays at 30 kg (2026-10-08).
 - The "Envio" settings start folded on every screen size; they are set once
   and rarely change.
+- Each box's arrangement starts with a free-spinning 3D view (three.js),
+  chosen over a dependency-free fixed drawing (2026-10-08). It shows only the
+  units that go in under the weight limit, and a slider builds it layer by
+  layer. To keep the page scrollable, one finger turns the box sideways while
+  vertical swipes scroll, two fingers zoom, and the mouse wheel zooms only
+  with Ctrl held. The unit positions come from `placeUnits` in
+  `src/engine/place.ts`, which is tested like the rest of the engine.
 
 ## The sales prototype
 
@@ -111,9 +121,10 @@ reviewed and these ideas were adopted: shipping mode with a weight limit per
 box, protection weight per box, internal loss per box dimension, switching
 boxes on and off, printing the plan, and the keep-upright option.
 
-Left out so far: several products packed together in one calculation, a 3D
-step-by-step view, a "cannot stack on top" option, and editing box sizes on
-the page. Its packing method (one orientation per box, plain grid, largest
+Its 3D step-by-step view was adopted later as the 3D view with a layer
+slider. Left out so far: several products packed together in one
+calculation, a "cannot stack on top" option, and editing box sizes on the
+page. Its packing method (one orientation per box, plain grid, largest
 box first) fits fewer units than this engine and was not reused.
 
 ## Open questions
@@ -138,5 +149,8 @@ Marked `TO CONFIRM` or `TO CALIBRATE` in `src/data/`. Ask before assuming:
 - The calculation is geometric only: no fragility, crushing or bulging.
 - Orders above 2,000,000 units are bulk-filled before the exact search, so the
   box mix is near-best rather than exact at that size.
+- The 3D view is not drawn above 20,000 units per box (`MAX_3D`); a short
+  note points to the layer drawings instead.
 - The page has been checked with Barlow loaded in a desktop browser, including
-  phone-width emulation (375 and 320 px), but not on a real phone.
+  phone-width emulation (375 and 320 px), but not on a real phone. The 3D
+  view's touch handling in particular has only been tested with a mouse.

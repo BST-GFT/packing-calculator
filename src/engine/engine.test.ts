@@ -6,6 +6,7 @@ import { SHIPPING_MODES, boxAllowed } from '../data/shipping.ts'
 import { fitUnitInBox, toMm, type BoxFit } from './fit.ts'
 import { freightWeight } from './freight.ts'
 import { packLayer, type Rect } from './layer.ts'
+import { placeUnits, type PlacedUnit } from './place.ts'
 import { planOrder } from './plan.ts'
 import type { Axis, BoxType, PackingRules, Unit } from './types.ts'
 
@@ -69,6 +70,44 @@ function assertFitValid(fit: BoxFit, rules: PackingRules) {
   }
   assert.ok(depth <= usable(fit.stackAxis), 'layers fit along the stacking direction')
   assert.equal(units, fit.spaceCapacity)
+}
+
+/** Checks that units placed in 3D are inside the box, keep their size and do not overlap. */
+function assertPlacedValid(fit: BoxFit, placed: PlacedUnit[], rules: PackingRules) {
+  const axes: Axis[] = ['length', 'width', 'height']
+  const sides = axes.map((a) => toMm(fit.unit.dims[a])).sort((p, q) => p - q)
+  // Where each layer starts along the stacking direction.
+  const starts: number[] = []
+  let depth = 0
+  for (const type of fit.layerTypes) {
+    for (let i = 0; i < type.layers; i++) {
+      starts.push(depth)
+      depth += toMm(type.thicknessCm)
+    }
+  }
+
+  for (const p of placed) {
+    for (const a of axes) {
+      const room = toMm(fit.box.dims[a] - rules.lossCm)
+      assert.ok(p.at[a] >= 0 && p.at[a] + p.size[a] <= room, 'unit inside the box')
+    }
+    assert.deepEqual(axes.map((a) => p.size[a]).sort((x, y) => x - y), sides, 'unit keeps its size')
+    assert.equal(p.at[fit.stackAxis], starts[p.layer], 'unit sits in its layer')
+  }
+  for (let i = 1; i < placed.length; i++) {
+    assert.ok(placed[i].layer >= placed[i - 1].layer, 'layers come in order')
+  }
+
+  // Sweep along the length so only units that share some of it are compared.
+  const sorted = [...placed].sort((p, q) => p.at.length - q.at.length)
+  for (let i = 0; i < sorted.length; i++) {
+    const p = sorted[i]
+    for (let j = i + 1; j < sorted.length && sorted[j].at.length < p.at.length + p.size.length; j++) {
+      const q = sorted[j]
+      const apart = axes.some((a) => p.at[a] + p.size[a] <= q.at[a] || q.at[a] + q.size[a] <= p.at[a])
+      assert.ok(apart, 'units do not overlap')
+    }
+  }
 }
 
 /** The most a plain grid holds: every unit facing the same way. */
@@ -207,6 +246,54 @@ describe('units per box', () => {
         assert.ok(fit.fill <= 1, label)
       }
     }
+  })
+})
+
+describe('placing units in 3D', () => {
+  it('places every unit of the real boxes validly', () => {
+    const rnd = random(23)
+    const rules = { ...RULES, lossCm: 0.5 }
+    for (let n = 0; n < 60; n++) {
+      const u = unit(
+        3 + Math.floor(rnd() * 250) / 10,
+        3 + Math.floor(rnd() * 200) / 10,
+        2 + Math.floor(rnd() * 150) / 10,
+      )
+      for (const b of BOXES) {
+        const fit = fitUnitInBox(u, b, rules)
+        const placed = placeUnits(fit, fit.spaceCapacity)
+        assert.equal(placed.length, fit.spaceCapacity)
+        assertPlacedValid(fit, placed, rules)
+      }
+    }
+  })
+
+  it('keeps the height vertical when units must stand upright', () => {
+    const rules = { ...RULES, keepUpright: true }
+    const fit = fitUnitInBox(unit(12, 9, 7), box('A', 40, 30, 20), rules)
+    const placed = placeUnits(fit)
+    assert.ok(placed.length > 0)
+    assert.ok(placed.every((p) => p.size.height === 70))
+    assertPlacedValid(fit, placed, rules)
+  })
+
+  it('fills the layers in order up to the weight limit', () => {
+    // 12 cubes per layer, two layers by space; 14 by weight.
+    const fit = fitUnitInBox(unit(10, 10, 10, 1), box('A', 40, 30, 20, 0.5), {
+      ...RULES,
+      maxGrossKg: 15,
+    })
+    assert.equal(fit.capacity, 14)
+    const placed = placeUnits(fit)
+    assert.deepEqual(
+      [0, 1].map((layer) => placed.filter((p) => p.layer === layer).length),
+      [12, 2],
+    )
+    assertPlacedValid(fit, placed, RULES)
+  })
+
+  it('places nothing when the unit does not fit', () => {
+    assert.deepEqual(placeUnits(fitUnitInBox(unit(50, 50, 50), box('A', 40, 30, 20), RULES)), [])
   })
 })
 
