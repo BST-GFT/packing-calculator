@@ -1,0 +1,670 @@
+/*
+ * The result is drawn like a shipping label: white stock, heavy ink rules,
+ * condensed type and solid tags for the box codes. Cardboard brown appears
+ * only where there is cardboard, in the packing drawings.
+ */
+
+:root {
+  color-scheme: light;
+  --floor: #e6e9ec;
+  --paper: #ffffff;
+  --ink: #14263a;
+  --ink-soft: #51606f;
+  --rule: #c3cbd3;
+  --blue: #1b5fc1;
+  --tape: #f6c445;
+  --kraft: #d8b888;
+  --kraft-edge: #94713f;
+  --unit: #fffdf7;
+  --unit-turned: #c9dcf4;
+  --text: 'Barlow', 'Segoe UI', Roboto, Arial, sans-serif;
+  --display: 'Barlow Condensed', 'Arial Narrow', 'Roboto Condensed', Arial, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--floor);
+  color: var(--ink);
+  font: 400 16px/1.45 var(--text);
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+dl,
+dd,
+figure,
+fieldset {
+  margin: 0;
+  padding: 0;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Page frame */
+
+.top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  background: var(--ink);
+  color: #fff;
+}
+
+.top h1 {
+  font: 600 24px/1.1 var(--display);
+  letter-spacing: 0.01em;
+}
+
+.top span {
+  font-size: 14px;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+.page {
+  display: grid;
+  gap: 24px;
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 20px 16px 48px;
+}
+
+@media (min-width: 900px) {
+  .page {
+    grid-template-columns: 330px minmax(0, 1fr);
+    align-items: start;
+    padding: 28px 24px 64px;
+  }
+}
+
+/* Inputs */
+
+.inputs {
+  display: grid;
+  gap: 16px;
+}
+
+fieldset,
+.panel {
+  min-width: 0;
+  padding: 18px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--paper);
+}
+
+fieldset,
+.panel[open] {
+  display: grid;
+  gap: 14px;
+}
+
+legend,
+summary {
+  font: 600 22px/1.1 var(--display);
+}
+
+legend {
+  float: left;
+  width: 100%;
+  padding: 0;
+}
+
+legend + * {
+  clear: both;
+}
+
+summary {
+  cursor: pointer;
+}
+
+summary small {
+  margin-left: 10px;
+  color: var(--ink-soft);
+  font: 400 14px/1.4 var(--text);
+}
+
+.panel[open] summary small {
+  display: none;
+}
+
+.field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.field label,
+.field-label {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.control {
+  display: flex;
+  align-items: center;
+  border: 1.5px solid #93a0ad;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.control:focus-within {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px var(--blue);
+}
+
+.control input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  height: 46px;
+  padding: 0 10px;
+  border: 0;
+  background: none;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.control input:focus {
+  outline: none;
+}
+
+.control span {
+  padding-right: 10px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.row-3,
+.row-2,
+.row-weight {
+  display: grid;
+  gap: 10px;
+  align-items: end;
+}
+
+.row-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.row-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.row-weight {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.row-weight .field-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.hint {
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.segmented {
+  display: flex;
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.segmented button {
+  flex: 1;
+  min-width: 52px;
+  height: 46px;
+  padding: 0 12px;
+  border: 0;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.segmented button + button {
+  border-left: 1.5px solid var(--ink);
+}
+
+.segmented button[aria-pressed='true'] {
+  background: var(--ink);
+  color: #fff;
+}
+
+.check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.check input {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin: 1px 0 0;
+  accent-color: var(--ink);
+}
+
+.check small {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.boxes {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+
+.problems {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px 12px 30px;
+  border-left: 6px solid var(--tape);
+  border-radius: 4px;
+  background: #fff8e1;
+  font-size: 14px;
+}
+
+/* Results */
+
+.results {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+
+.empty {
+  padding: 40px 24px;
+  border: 2px dashed #9aa7b4;
+  border-radius: 6px;
+  color: var(--ink-soft);
+  font-size: 18px;
+  text-align: center;
+}
+
+.tag {
+  display: inline-block;
+  min-width: 2.1em;
+  padding: 1px 8px 2px;
+  background: var(--ink);
+  color: #fff;
+  font: 600 1.1em/1.25 var(--display);
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+.plan {
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  background: var(--paper);
+}
+
+.plan > * + * {
+  border-top: 2px solid var(--ink);
+}
+
+.plan-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 18px 20px;
+}
+
+.plan-head h2 {
+  font: 600 clamp(30px, 6vw, 46px) / 1.02 var(--display);
+}
+
+.plan-head p {
+  margin-top: 6px;
+  color: var(--ink-soft);
+}
+
+.print {
+  height: 40px;
+  padding: 0 14px;
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.print:hover,
+.alternatives button:hover {
+  background: #eef2f6;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  overflow: hidden;
+}
+
+.facts div {
+  margin: 0 -1px -1px 0;
+  padding: 12px 20px 14px;
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.facts dt {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.facts dd {
+  font: 600 26px/1.15 var(--display);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.lines {
+  list-style: none;
+}
+
+.lines li {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  padding: 12px 20px;
+  font-size: 18px;
+}
+
+.lines li + li {
+  border-top: 1px solid var(--rule);
+}
+
+.line-main {
+  flex: 1;
+}
+
+.line-main small {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.line-weight {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.how {
+  padding: 16px 20px 20px;
+}
+
+.how h3 {
+  margin-bottom: 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.plan-foot {
+  display: grid;
+  gap: 12px;
+  padding: 14px 20px 16px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.alternatives {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.alternatives button {
+  padding: 8px 12px;
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 14px;
+  text-align: left;
+}
+
+.alternatives strong {
+  display: block;
+  font-weight: 600;
+}
+
+/* Packing drawings */
+
+.arrangement {
+  display: grid;
+  gap: 12px;
+}
+
+.note {
+  padding: 8px 12px;
+  border-left: 4px solid var(--rule);
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.note-weight {
+  border-left-color: var(--tape);
+  background: #fff8e1;
+  color: var(--ink);
+}
+
+.layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px 28px;
+}
+
+.layer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: flex-start;
+}
+
+.layer-drawing {
+  display: block;
+  width: 210px;
+  max-width: 100%;
+  height: auto;
+  border: 3px solid var(--kraft-edge);
+}
+
+.carton {
+  fill: var(--kraft);
+}
+
+.unit {
+  fill: var(--unit);
+  stroke: var(--ink);
+  stroke-width: 1.25;
+  vector-effect: non-scaling-stroke;
+}
+
+.unit-turned {
+  fill: var(--unit-turned);
+}
+
+.layer figcaption {
+  display: grid;
+  gap: 2px;
+  max-width: 250px;
+  font-size: 14px;
+}
+
+.layer figcaption strong {
+  font: 600 20px/1.2 var(--display);
+}
+
+.layer .axes {
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+/* Capacity table */
+
+.capacity {
+  display: grid;
+  gap: 10px;
+  padding: 18px 20px 8px;
+  border-radius: 6px;
+  background: var(--paper);
+}
+
+.capacity h2 {
+  font: 600 22px/1.1 var(--display);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+thead th {
+  padding: 6px 8px 6px 0;
+  border-bottom: 2px solid var(--ink);
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+}
+
+tbody th,
+tbody td {
+  padding: 12px 8px 12px 0;
+  border-bottom: 1px solid var(--rule);
+  font-weight: 400;
+  text-align: left;
+  vertical-align: top;
+}
+
+tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+tbody td {
+  font-size: 18px;
+}
+
+tbody small {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+td:last-child,
+th:last-child {
+  padding-right: 0;
+  text-align: right;
+}
+
+.detail td {
+  padding: 4px 0 18px;
+  text-align: left;
+}
+
+.link {
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--blue);
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .wide {
+    display: none;
+  }
+}
+
+.disclaimer {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+/* Printing: the plan only */
+
+@media print {
+  body {
+    background: #fff;
+  }
+
+  .inputs,
+  .print,
+  .alternatives,
+  .capacity,
+  .top span {
+    display: none;
+  }
+
+  .top {
+    padding: 0 0 8px;
+    background: none;
+    color: var(--ink);
+  }
+
+  .page {
+    display: block;
+    padding: 0;
+  }
+
+  .how {
+    break-inside: avoid;
+  }
+
+  .carton,
+  .unit,
+  .tag {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
