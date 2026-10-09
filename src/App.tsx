@@ -61,6 +61,7 @@ export function App() {
   const [weight, setWeight] = useState('')
   const [weightUnit, setWeightUnit] = useState<'g' | 'kg'>('g')
   const [quantity, setQuantity] = useState('')
+  const [layerLimit, setLayerLimit] = useState('')
   const [upright, setUpright] = useState(false)
 
   const [modeId, setModeId] = useState(() =>
@@ -92,6 +93,7 @@ export function App() {
   const weightTyped = weight.trim() === '' ? 0 : parseDecimal(weight)
   const unitWeightKg = weightUnit === 'g' ? weightTyped / 1000 : weightTyped
   const qty = quantity.trim() === '' ? 0 : parseDecimal(quantity)
+  const maxLayers = layerLimit.trim() === '' ? Infinity : parseDecimal(layerLimit)
   const maxKg = parseDecimal(maxWeight)
   const protectionKg = parseDecimal(protection)
   const lossCm = parseDecimal(loss)
@@ -100,6 +102,7 @@ export function App() {
   const dimsTyped = [length, width, height].every((s) => s.trim() !== '')
   const dimsOk = sideOk(l) && sideOk(w) && sideOk(h)
   const qtyOk = Number.isInteger(qty) && qty >= 1 && qty <= MAX_QUANTITY
+  const layersOk = maxLayers === Infinity || (Number.isInteger(maxLayers) && maxLayers >= 1)
 
   const problems: string[] = []
   if ([length, width, height].some((s, i) => s.trim() !== '' && !sideOk([l, w, h][i]))) {
@@ -109,11 +112,14 @@ export function App() {
   if (quantity.trim() !== '' && !qtyOk) {
     problems.push(`A quantidade deve ser um número inteiro de 1 a ${num(MAX_QUANTITY, 0)}.`)
   }
+  if (!layersOk) {
+    problems.push('O máximo de camadas deve ser um número inteiro a partir de 1, ou vazio para não limitar.')
+  }
   if (!(maxKg > 0)) problems.push('Informe o limite de peso por caixa.')
   if (!(protectionKg >= 0)) problems.push('A proteção por caixa deve ser um número, ou zero.')
   if (!(lossCm >= 0)) problems.push('A folga interna deve ser um número, ou zero.')
 
-  const settingsOk = unitWeightKg >= 0 && maxKg > 0 && protectionKg >= 0 && lossCm >= 0
+  const settingsOk = unitWeightKg >= 0 && layersOk && maxKg > 0 && protectionKg >= 0 && lossCm >= 0
 
   const result = useMemo(() => {
     if (!dimsOk || !settingsOk) return null
@@ -123,6 +129,7 @@ export function App() {
       protectionKg,
       lossCm,
       keepUpright: upright,
+      maxLayers,
     }
     const fits = BOXES.filter((b) => !off.includes(b.id) && boxAllowed(b, mode)).map((b) =>
       fitUnitInBox(unit, b, rules),
@@ -136,7 +143,7 @@ export function App() {
       }
     }
     return { fits, plans }
-  }, [dimsOk, settingsOk, qtyOk, l, w, h, unitWeightKg, qty, maxKg, protectionKg, lossCm, upright, off, mode])
+  }, [dimsOk, settingsOk, qtyOk, l, w, h, unitWeightKg, qty, maxKg, protectionKg, lossCm, upright, maxLayers, off, mode])
 
   const active: Priority | null = result
     ? result.plans.has(priority)
@@ -200,6 +207,14 @@ export function App() {
               inputMode="numeric"
               value={quantity}
               onChange={setQuantity}
+            />
+            <Field
+              label="Máximo de camadas"
+              inputMode="numeric"
+              placeholder="Sem limite"
+              value={layerLimit}
+              onChange={setLayerLimit}
+              hint="Quantas unidades podem ficar uma sobre a outra."
             />
             <label className="check">
               <input type="checkbox" checked={upright} onChange={(e) => setUpright(e.target.checked)} />
@@ -331,6 +346,9 @@ export function App() {
                         <td>
                           {fit.capacity > 0 ? num(fit.capacity, 0) : 'Não cabe'}
                           {fit.capacity > 0 && fit.limitedBy === 'weight' && <small>limite de peso</small>}
+                          {fit.capacity > 0 && fit.limitedBy === 'layers' && (
+                            <small>limite de camadas</small>
+                          )}
                         </td>
                         <td>{fit.capacity > 0 ? pct(fit.fill) : ''}</td>
                         <td className="wide">
@@ -509,6 +527,7 @@ function Field({
   onChange,
   suffix,
   hint,
+  placeholder,
   inputMode = 'decimal',
 }: {
   label: string
@@ -516,6 +535,7 @@ function Field({
   onChange: (value: string) => void
   suffix?: string
   hint?: string
+  placeholder?: string
   inputMode?: 'decimal' | 'numeric'
 }) {
   const id = useId()
@@ -528,6 +548,7 @@ function Field({
           type="text"
           inputMode={inputMode}
           autoComplete="off"
+          placeholder={placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           aria-describedby={hint ? `${id}-hint` : undefined}

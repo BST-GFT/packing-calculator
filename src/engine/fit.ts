@@ -4,7 +4,8 @@
  * Units are packed in flat layers. Within a layer every unit stands on the same
  * face, so the layer has one thickness; different layers may use different
  * faces. Layers are stacked along the box's height, or along its length or
- * width when that holds more.
+ * width when that holds more, unless the units must stay upright or there is
+ * a limit on layers.
  */
 
 import { packLayer, type Rect } from './layer.ts'
@@ -31,9 +32,12 @@ export interface BoxFit {
   weightCapacity: number
   /** Units to put in a full box: the smaller of the two above. */
   capacity: number
-  limitedBy: 'space' | 'weight'
+  /** What keeps the box from holding more; 'layers' when the layer limit cost units. */
+  limitedBy: 'space' | 'weight' | 'layers'
   /** Weight limit that applied to this box. */
   maxGrossKg: number
+  /** Layer limit that applied; Infinity when there is none. */
+  maxLayers: number
   /** Empty box plus padding. */
   tareKg: number
   /** Direction the layers are stacked in. */
@@ -67,32 +71,12 @@ export function fitUnitInBox(unit: Unit, box: BoxType, rules: PackingRules): Box
   }
   const u = [toMm(unit.dims.length), toMm(unit.dims.width), toMm(unit.dims.height)]
 
-  // Standing upright, the only choice is layers stacked along the box height
-  // with the unit's own height as the layer thickness.
-  const stackAxes: Axis[] = rules.keepUpright ? ['height'] : ['height', 'length', 'width']
-  const faces = rules.keepUpright ? [2] : [0, 1, 2]
-
-  let best: Pick<BoxFit, 'spaceCapacity' | 'stackAxis' | 'plane' | 'layerTypes'> = {
-    spaceCapacity: 0,
-    stackAxis: 'height',
-    plane: { u: 'length', v: 'width', uMm: usable.length, vMm: usable.width },
-    layerTypes: [],
-  }
-
-  for (const axis of stackAxes) {
-    const [pu, pv] = PLANE[axis]
-    const stacked = stackLayers(usable[axis], usable[pu], usable[pv], u, faces)
-    const total = stacked.reduce((sum, t) => sum + t.unitsPerLayer * t.layers, 0)
-    // Strictly more: on a tie the earlier axis wins, and height comes first.
-    if (total > best.spaceCapacity) {
-      best = {
-        spaceCapacity: total,
-        stackAxis: axis,
-        plane: { u: pu, v: pv, uMm: usable[pu], vMm: usable[pv] },
-        layerTypes: stacked,
-      }
-    }
-  }
+  const maxLayers = rules.maxLayers ?? Infinity
+  const best = bestStack(usable, u, rules.keepUpright, maxLayers)
+  // What the box would hold without the layer limit, to tell whether it cost units.
+  const unlimited = Number.isFinite(maxLayers)
+    ? bestStack(usable, u, rules.keepUpright, Infinity).spaceCapacity
+    : best.spaceCapacity
 
   const maxGrossKg = Math.min(rules.maxGrossKg, box.maxWeightKg ?? Infinity)
   const tareKg = box.emptyWeightKg + rules.protectionKg
@@ -109,17 +93,65 @@ export function fitUnitInBox(unit: Unit, box: BoxType, rules: PackingRules): Box
     ...best,
     weightCapacity,
     capacity,
-    limitedBy: weightCapacity < best.spaceCapacity ? 'weight' : 'space',
+    limitedBy:
+      weightCapacity < best.spaceCapacity
+        ? 'weight'
+        : best.spaceCapacity < unlimited
+          ? 'layers'
+          : 'space',
     maxGrossKg,
+    maxLayers,
     tareKg,
     fill: boxVolume > 0 ? (capacity * volumeCm3(unit.dims)) / boxVolume : 0,
   }
 }
 
+type Stack = Pick<BoxFit, 'spaceCapacity' | 'stackAxis' | 'plane' | 'layerTypes'>
+
 /**
- * Best stack of layers in a space `stack` mm deep over a `pu` × `pv` mm base.
- * `faces` lists which unit dimensions (0, 1, 2) may run along the stack. Tries
- * every mix of the layer thicknesses that allows.
+ * The stacking direction and layers that hold the most units in a box with
+ * `usable` mm of room. Units kept upright, or a layer limit, allow only flat
+ * layers up the box height. Every flat layer is one unit tall, so then the
+ * number of layers is how many units sit on top of each other.
+ */
+function bestStack(
+  usable: Record<Axis, number>,
+  u: number[],
+  keepUpright: boolean,
+  maxLayers: number,
+): Stack {
+  const flatOnly = keepUpright || Number.isFinite(maxLayers)
+  const stackAxes: Axis[] = flatOnly ? ['height'] : ['height', 'length', 'width']
+  // Standing upright, the unit's own height is the layer thickness.
+  const faces = keepUpright ? [2] : [0, 1, 2]
+
+  let best: Stack = {
+    spaceCapacity: 0,
+    stackAxis: 'height',
+    plane: { u: 'length', v: 'width', uMm: usable.length, vMm: usable.width },
+    layerTypes: [],
+  }
+  for (const axis of stackAxes) {
+    const [pu, pv] = PLANE[axis]
+    const stacked = stackLayers(usable[axis], usable[pu], usable[pv], u, faces, maxLayers)
+    const total = stacked.reduce((sum, t) => sum + t.unitsPerLayer * t.layers, 0)
+    // Strictly more: on a tie the earlier axis wins, and height comes first.
+    if (total > best.spaceCapacity) {
+      best = {
+        spaceCapacity: total,
+        stackAxis: axis,
+        plane: { u: pu, v: pv, uMm: usable[pu], vMm: usable[pv] },
+        layerTypes: stacked,
+      }
+    }
+  }
+  return best
+}
+
+/**
+ * Best stack of at most `maxLayers` layers in a space `stack` mm deep over a
+ * `pu` × `pv` mm base. `faces` lists which unit dimensions (0, 1, 2) may run
+ * along the stack. Tries every mix of the layer thicknesses that allows.
  */
 function stackLayers(
   stack: number,
@@ -127,6 +159,7 @@ function stackLayers(
   pv: number,
   u: number[],
   faces: number[],
+  maxLayers: number,
 ): LayerType[] {
   interface Option {
     thickness: number
@@ -168,9 +201,9 @@ function stackLayers(
     }
   }
 
-  const search = (i: number, rest: number, units: number) => {
+  const search = (i: number, rest: number, layersLeft: number, units: number) => {
     const o = options[i]
-    const max = Math.floor(rest / o.thickness)
+    const max = Math.min(Math.floor(rest / o.thickness), layersLeft)
     if (i === options.length - 1) {
       counts[i] = max
       consider(units + max * o.count, stack - rest + max * o.thickness)
@@ -178,10 +211,10 @@ function stackLayers(
     }
     for (let c = max; c >= 0; c--) {
       counts[i] = c
-      search(i + 1, rest - c * o.thickness, units + c * o.count)
+      search(i + 1, rest - c * o.thickness, layersLeft - c, units + c * o.count)
     }
   }
-  search(0, stack, 0)
+  search(0, stack, maxLayers, 0)
 
   return options
     .map((o, i) => ({
