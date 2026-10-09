@@ -106,6 +106,13 @@ background it was drawn for.
 - Transportadora allows 25 kg per box; Correios stays at 30 kg (2026-10-08).
 - The "Envio" settings start folded on every screen size; they are set once
   and rarely change.
+- "Máximo de camadas" on the product is optional and empty by default (no
+  limit). It caps how many units sit on top of each other. With a limit the
+  units go in flat layers only, each one unit tall, so "camadas" in the result
+  means the same as in the field. Arrangements with layers standing on end are
+  then not used, even where their columns would be low enough (2026-10-09).
+  The table and the arrangement say so when the limit cost units
+  (`limitedBy: 'layers'`).
 - Each box's arrangement starts with a free-spinning 3D view (three.js),
   chosen over a dependency-free fixed drawing (2026-10-08). It shows only the
   units that go in under the weight limit, and a slider builds it layer by

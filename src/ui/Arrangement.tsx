@@ -29,8 +29,13 @@ export function Arrangement({ fit }: { fit: BoxFit }) {
           desenhos das camadas mostram a caixa vista de lado.
         </p>
       )}
+      {fit.limitedBy === 'layers' && (
+        <p className="note note-limit">
+          Com o limite de {count(fit.maxLayers, 'camada', 'camadas')}, sobra espaço nesta caixa.
+        </p>
+      )}
       {fit.limitedBy === 'weight' && (
-        <p className="note note-weight">
+        <p className="note note-limit">
           Pelo espaço caberiam {num(fit.spaceCapacity, 0)}, mas o limite de {num(fit.maxGrossKg)} kg
           permite {count(fit.capacity, 'unidade', 'unidades')} por caixa. Monte as camadas abaixo
           até chegar a esse número.

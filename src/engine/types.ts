@@ -37,4 +37,10 @@ export interface PackingRules {
   lossCm: number
   /** When true the unit's height stays vertical; it may still turn on the spot. */
   keepUpright: boolean
+  /**
+   * Most units that may sit on top of each other. With a limit the units go in
+   * flat layers only, so it is also the most layers a box holds. Leave it out,
+   * or use Infinity, for no limit.
+   */
+  maxLayers?: number
 }

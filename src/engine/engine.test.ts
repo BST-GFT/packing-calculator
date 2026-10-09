@@ -247,6 +247,47 @@ describe('units per box', () => {
       }
     }
   })
+
+  it('stays within a layer limit, turning units to make the most of it', () => {
+    const b = box('A', 40, 30, 20)
+    const u = unit(10, 10, 5)
+    // Lying on a 10 × 5 side, two layers of 24 already fill the box.
+    const two = fitUnitInBox(u, b, { ...RULES, maxLayers: 2 })
+    assert.equal(two.capacity, 48)
+    assert.equal(two.limitedBy, 'space')
+    const one = fitUnitInBox(u, b, { ...RULES, maxLayers: 1 })
+    assert.equal(one.capacity, 24)
+    assert.equal(one.limitedBy, 'layers')
+    // Upright, each layer is 5 cm tall, so two layers hold half the box.
+    const upright = fitUnitInBox(u, b, { ...RULES, keepUpright: true, maxLayers: 2 })
+    assert.equal(upright.capacity, 24)
+    assert.equal(upright.limitedBy, 'layers')
+    for (const fit of [two, one, upright]) assertFitValid(fit, RULES)
+  })
+
+  it('never stacks more units than the layer limit', () => {
+    const rnd = random(31)
+    const rules = { ...RULES, lossCm: 0.5 }
+    for (let n = 0; n < 80; n++) {
+      const u = unit(
+        3 + Math.floor(rnd() * 250) / 10,
+        3 + Math.floor(rnd() * 200) / 10,
+        2 + Math.floor(rnd() * 150) / 10,
+      )
+      const maxLayers = 1 + Math.floor(rnd() * 5)
+      for (const b of BOXES) {
+        const unlimited = fitUnitInBox(u, b, rules)
+        const fit = fitUnitInBox(u, b, { ...rules, maxLayers })
+        const label = `${u.dims.length}x${u.dims.width}x${u.dims.height} in ${b.name}, ${maxLayers} layers`
+        assertFitValid(fit, rules)
+        if (fit.capacity > 0) assert.equal(fit.stackAxis, 'height', label)
+        const layers = fit.layerTypes.reduce((sum, t) => sum + t.layers, 0)
+        assert.ok(layers <= maxLayers, label)
+        assert.ok(fit.spaceCapacity <= unlimited.spaceCapacity, label)
+        assert.equal(fit.limitedBy === 'layers', fit.spaceCapacity < unlimited.spaceCapacity, label)
+      }
+    }
+  })
 })
 
 describe('placing units in 3D', () => {

@@ -222,6 +222,11 @@ summary small {
   outline: none;
 }
 
+.control input::placeholder {
+  color: var(--ink-soft);
+  opacity: 0.7;
+}
+
 .control span {
   padding-right: 10px;
   color: var(--ink-soft);
@@ -512,7 +517,7 @@ summary small {
   font-size: 14px;
 }
 
-.note-weight {
+.note-limit {
   border-left-color: var(--tape);
   background: #fff8e1;
   color: var(--ink);

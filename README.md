@@ -39,7 +39,8 @@ To change a box, edit `src/data/boxes.ts` and push.
    (`engine/layer.ts`).
 2. **One box.** Layers are stacked. Each layer can stand the unit on a
    different face, and the stack can run along the box's height, length or
-   width, whichever holds most. The weight limit then caps the count
+   width, whichever holds most. With a "Máximo de camadas", only flat layers
+   are stacked, up to that number. The weight limit then caps the count
    (`engine/fit.ts`).
 3. **The order.** Knowing how many units each box holds, it finds the mix of
    box sizes that covers the quantity best (`engine/plan.ts`). "Best" is one of:
