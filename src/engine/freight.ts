@@ -4,7 +4,13 @@
  */
 
 import { volumeCm3 } from './fit.ts'
-import type { Plan } from './plan.ts'
+import type { BoxType } from './types.ts'
+
+/** What freight is worked out from: the boxes shipped and their total weight. */
+export interface Shipped {
+  lines: Array<{ box: BoxType; boxes: number; grossKgPerBox: number }>
+  grossKg: number
+}
 
 export interface CubageRule {
   /** Kilograms charged per cubic metre of box. */
@@ -24,13 +30,13 @@ export interface FreightWeight {
   chargeableKg: number
 }
 
-export function freightWeight(plan: Plan, rule: CubageRule): FreightWeight {
+export function freightWeight(plan: Shipped, rule: CubageRule): FreightWeight {
   const counted = (cubed: number) => (cubed > rule.ignoreUpToKg ? cubed : 0)
 
   let cubedKg = 0
   let perBox = 0
   for (const line of plan.lines) {
-    const cubed = (volumeCm3(line.fit.box.dims) / 1e6) * rule.kgPerM3
+    const cubed = (volumeCm3(line.box.dims) / 1e6) * rule.kgPerM3
     cubedKg += line.boxes * cubed
     perBox += line.boxes * Math.max(line.grossKgPerBox, counted(cubed))
   }

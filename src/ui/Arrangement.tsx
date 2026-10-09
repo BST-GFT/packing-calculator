@@ -1,7 +1,8 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useMemo } from 'react'
 
-import type { BoxFit, LayerType } from '../engine/index.ts'
-import { ALONG, AXIS, count, num } from './format.ts'
+import { placeUnits, toMm, type BoxFit, type LayerType, type ShipmentLine } from '../engine/index.ts'
+import type { Contents } from './Box3D.tsx'
+import { ALONG, AXIS, count, list, num, productColor } from './format.ts'
 
 // three.js is large, so the 3D view is fetched only once a box is shown.
 const Box3D = lazy(() => import('./Box3D.tsx').then((m) => ({ default: m.Box3D })))
@@ -9,20 +10,43 @@ const Box3D = lazy(() => import('./Box3D.tsx').then((m) => ({ default: m.Box3D }
 /** Beyond this many units a layer is described in words instead of drawn. */
 const MAX_DRAWN = 1500
 
+/** Beyond this many units the box is not drawn in 3D. */
+const MAX_3D = 20_000
+
+function View3D(contents: Contents) {
+  if (contents.units.length > MAX_3D) {
+    return <p className="note">São unidades demais para mostrar em 3D; siga as camadas abaixo.</p>
+  }
+  return (
+    <Suspense fallback={<div className="view3d-canvas view3d-loading">Carregando 3D…</div>}>
+      <Box3D {...contents} />
+    </Suspense>
+  )
+}
+
 /**
- * How to arrange the units inside one box: the whole box in 3D, then a drawing
- * and a line of text per kind of layer.
+ * How to arrange the units of one product inside one box: the whole box in 3D,
+ * then a drawing and a line of text per kind of layer. In an order of several
+ * products, `product` gives the unit colour in 3D.
  */
-export function Arrangement({ fit }: { fit: BoxFit }) {
+export function Arrangement({ fit, product }: { fit: BoxFit; product?: number }) {
+  const units = useMemo(
+    () => placeUnits(fit, Math.min(fit.capacity, MAX_3D + 1), product ?? 0),
+    [fit, product],
+  )
   if (fit.spaceCapacity === 0) return null
   const upright = fit.stackAxis === 'height'
   const { u, v } = fit.plane
 
   return (
     <div className="arrangement">
-      <Suspense fallback={<div className="view3d-canvas view3d-loading">Carregando 3D…</div>}>
-        <Box3D fit={fit} />
-      </Suspense>
+      <View3D
+        box={fit.box}
+        lossMm={toMm(fit.box.dims[u]) - fit.plane.uMm}
+        units={units}
+        colorBy={product === undefined ? 'turn' : 'product'}
+      />
+
       {!upright && (
         <p className="note">
           Nesta caixa cabe mais com as camadas em pé, uma atrás da outra {ALONG[fit.stackAxis]}. Os
@@ -95,5 +119,85 @@ function LayerDrawing({ fit, layer }: { fit: BoxFit; layer: LayerType }) {
         />
       ))}
     </svg>
+  )
+}
+
+/**
+ * How to pack a box that mixes products: the box in 3D, coloured by product,
+ * then what goes in each layer from the bottom up. `allowances` gives, per
+ * product, how many times its weight a fragile unit carries in other
+ * products, or null for a product that is not fragile.
+ */
+export function MixedArrangement({
+  line,
+  names,
+  lossMm,
+  allowances,
+}: {
+  line: ShipmentLine
+  names: string[]
+  lossMm: number
+  allowances: Array<number | null>
+}) {
+  const units = line.placed ?? []
+  // Units of each product in each layer, bottom first.
+  const layers: Array<Map<number, number>> = []
+  for (const u of units) {
+    const layer = (layers[u.layer] ??= new Map())
+    layer.set(u.product, (layer.get(u.product) ?? 0) + 1)
+  }
+  // Layers holding the same, such as a pile of bags, are listed once.
+  const steps: Array<{ from: number; to: number; text: string }> = []
+  layers.forEach((layer, i) => {
+    const text = list(
+      [...layer].sort((a, b) => a[0] - b[0]).map(([p, n]) => `${num(n, 0)} ${names[p]}`),
+    )
+    const last = steps[steps.length - 1]
+    if (last && last.text === text && last.to === i - 1) last.to = i
+    else steps.push({ from: i, to: i, text })
+  })
+  const fragile = (product: number) => allowances[product] !== null
+  const allowed = (factor: number) =>
+    factor === 0
+      ? 'nada de outro produto vai sobre suas unidades'
+      : `sobre cada unidade outros produtos somam no máximo ${
+          factor === 1 ? 'o próprio peso dela' : `${num(factor, 0)} vezes o peso dela`
+        }`
+
+  return (
+    <div className="arrangement">
+      <View3D box={line.box} lossMm={lossMm} units={units} colorBy="product" />
+      <ul className="legend">
+        {line.contents.map((c) => (
+          <li key={c.product}>
+            <span className="chip" style={{ background: productColor(c.product) }} aria-hidden="true" />
+            {names[c.product]}
+            {fragile(c.product) && <small>frágil</small>}
+          </li>
+        ))}
+      </ul>
+      {line.contents
+        .filter((c) => fragile(c.product))
+        .map((c) => (
+          <p className="note" key={c.product}>
+            {names[c.product]} é frágil: vai por cima, e {allowed(allowances[c.product]!)}.
+          </p>
+        ))}
+      <ol className="steps">
+        {steps.map((step) => (
+          <li key={step.from}>
+            <strong>
+              {step.from === step.to
+                ? `Camada ${step.from + 1}`
+                : `Camadas ${step.from + 1} a ${step.to + 1}`}
+            </strong>
+            <span>
+              {step.text}
+              {step.from === step.to ? '' : ' em cada'}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
   )
 }

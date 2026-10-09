@@ -3,7 +3,7 @@
  * three.js is larger than the rest of the page put together.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   BackSide,
   BoxGeometry,
@@ -30,11 +30,8 @@ import {
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 
-import { placeUnits, toMm, type BoxFit, type PlacedUnit } from '../engine/index.ts'
-import { count } from './format.ts'
-
-/** Beyond this many units the box is not drawn in 3D. */
-const MAX_3D = 20_000
+import type { BoxType, PlacedUnit } from '../engine/index.ts'
+import { count, PRODUCT_COLORS } from './format.ts'
 
 /** Starting view: from the front right, above the box. */
 const VIEW = new Vector3(1, 0.85, 1.35).normalize()
@@ -42,16 +39,23 @@ const VIEW = new Vector3(1, 0.85, 1.35).normalize()
 /** The 12 edges of a cuboid as pairs of corners; bit 0 is x, bit 1 is y, bit 2 is z. */
 const EDGES = [0, 1, 2, 3, 4, 5, 6, 7, 0, 2, 1, 3, 4, 6, 5, 7, 0, 4, 1, 5, 2, 6, 3, 7]
 
-export function Box3D({ fit }: { fit: BoxFit }) {
-  const units = useMemo(() => placeUnits(fit, Math.min(fit.capacity, MAX_3D + 1)), [fit])
-  if (units.length === 0) return null
-  if (units.length > MAX_3D) {
-    return <p className="note">São unidades demais para mostrar em 3D; siga as camadas abaixo.</p>
-  }
-  return <Viewer fit={fit} units={units} />
+export interface Contents {
+  box: BoxType
+  /** Space lost on each box dimension, mm; units sit centred in what is left. */
+  lossMm: number
+  /** Units in layer order, lowest layer first. */
+  units: PlacedUnit[]
+  /** Tint units that lie the other way round, or tell products apart. */
+  colorBy: 'turn' | 'product'
 }
 
-function Viewer({ fit, units }: { fit: BoxFit; units: PlacedUnit[] }) {
+export function Box3D(props: Contents) {
+  if (props.units.length === 0) return null
+  return <Viewer {...props} />
+}
+
+function Viewer(contents: Contents) {
+  const { units } = contents
   const layers = units[units.length - 1].layer + 1
   const [shown, setShown] = useState(layers)
   // New contents start with every layer showing.
@@ -71,7 +75,11 @@ function Viewer({ fit, units }: { fit: BoxFit; units: PlacedUnit[] }) {
       view.current = null
     }
   }, [])
-  useEffect(() => view.current?.setContents(fit, units), [fit, units])
+  const { box, lossMm, colorBy } = contents
+  useEffect(
+    () => view.current?.setContents({ box, lossMm, units, colorBy }),
+    [box, lossMm, units, colorBy],
+  )
   useEffect(() => view.current?.showLayers(shown), [shown, units])
 
   return (
@@ -104,7 +112,7 @@ function Viewer({ fit, units }: { fit: BoxFit; units: PlacedUnit[] }) {
 }
 
 interface View {
-  setContents: (fit: BoxFit, units: PlacedUnit[]) => void
+  setContents: (contents: Contents) => void
   showLayers: (layers: number) => void
   reset: () => void
   dispose: () => void
@@ -115,6 +123,7 @@ function createView(host: HTMLElement): View {
   const color = (name: string) => new Color(css.getPropertyValue(name).trim())
   const unitColor = color('--unit')
   const turnedColor = color('--unit-turned')
+  const productColors = Array.from({ length: PRODUCT_COLORS }, (_, i) => color(`--p${i + 1}`))
 
   const renderer = new WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -217,9 +226,8 @@ function createView(host: HTMLElement): View {
   resize()
 
   return {
-    setContents(fit, units) {
+    setContents({ box, lossMm, units, colorBy }) {
       clear()
-      const { box } = fit
       const next = new Vector3(box.dims.length, box.dims.height, box.dims.width)
       const newBox = !next.equals(size)
       size = next
@@ -231,7 +239,7 @@ function createView(host: HTMLElement): View {
       contents.add(walls, rim)
 
       // Units sit in the usable space, centred in the box.
-      const inset = (toMm(box.dims[fit.plane.u]) - fit.plane.uMm) / 2
+      const inset = lossMm / 2
       const matrix = new Matrix4()
       const centre = new Vector3()
       const scale = new Vector3()
@@ -251,7 +259,14 @@ function createView(host: HTMLElement): View {
         corner[1].copy(corner[0]).add(scale)
         centre.copy(corner[0]).addScaledVector(scale, 0.5)
         mesh!.setMatrixAt(i, matrix.compose(centre, turn, scale))
-        mesh!.setColorAt(i, unit.turned ? turnedColor : unitColor)
+        mesh!.setColorAt(
+          i,
+          colorBy === 'product'
+            ? productColors[unit.product % PRODUCT_COLORS]
+            : unit.turned
+              ? turnedColor
+              : unitColor,
+        )
         EDGES.forEach((c, k) => {
           const at = (i * EDGES.length + k) * 3
           lines[at] = corner[c & 1].x
@@ -267,7 +282,10 @@ function createView(host: HTMLElement): View {
       contents.add(mesh, outlines)
 
       // Outlines of many small units would turn the view grey, so they fade.
-      const smallest = Math.min(units[0].size.length, units[0].size.width, units[0].size.height)
+      const smallest = units.reduce(
+        (least, u) => Math.min(least, u.size.length, u.size.width, u.size.height),
+        Infinity,
+      )
       edgeMaterial.opacity = MathUtils.clamp((smallest / 10 / Math.max(size.x, size.y, size.z)) * 12, 0.18, 0.6)
 
       canvas.setAttribute(

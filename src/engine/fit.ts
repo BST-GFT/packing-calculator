@@ -9,6 +9,7 @@
  */
 
 import { packLayer, type Rect } from './layer.ts'
+import { layerSupported } from './support.ts'
 import type { Axis, BoxType, Dims, PackingRules, Unit } from './types.ts'
 
 export interface LayerType {
@@ -133,7 +134,8 @@ function bestStack(
   }
   for (const axis of stackAxes) {
     const [pu, pv] = PLANE[axis]
-    const stacked = stackLayers(usable[axis], usable[pu], usable[pv], u, faces, maxLayers)
+    const flat = axis === 'height'
+    const stacked = stackLayers(usable[axis], usable[pu], usable[pv], u, faces, maxLayers, flat)
     const total = stacked.reduce((sum, t) => sum + t.unitsPerLayer * t.layers, 0)
     // Strictly more: on a tie the earlier axis wins, and height comes first.
     if (total > best.spaceCapacity) {
@@ -152,6 +154,10 @@ function bestStack(
  * Best stack of at most `maxLayers` layers in a space `stack` mm deep over a
  * `pu` × `pv` mm base. `faces` lists which unit dimensions (0, 1, 2) may run
  * along the stack. Tries every mix of the layer thicknesses that allows.
+ *
+ * `flat` layers lie on top of each other, so a mix of kinds is only used in
+ * an order where each kind holds up the one above it. Layers standing on end
+ * stand side by side instead, and each is packed so its own units are held up.
  */
 function stackLayers(
   stack: number,
@@ -160,6 +166,7 @@ function stackLayers(
   u: number[],
   faces: number[],
   maxLayers: number,
+  flat: boolean,
 ): LayerType[] {
   interface Option {
     thickness: number
@@ -174,18 +181,43 @@ function stackLayers(
     // Two faces with the same thickness give the same layer.
     if (options.some((o) => o.thickness === thickness)) continue
     const footprint: [number, number] = [u[(k + 1) % 3], u[(k + 2) % 3]]
-    const layout = packLayer(pu, pv, footprint[0], footprint[1])
+    const layout = packLayer(pu, pv, footprint[0], footprint[1], !flat)
     if (layout.count > 0) {
       options.push({ thickness, footprint, count: layout.count, rects: layout.rects })
     }
   }
   if (options.length === 0) return []
 
+  // Whether kind `upper` can lie on kind `lower`, worked out when first needed.
+  const holds = new Map<number, boolean>()
+  const supports = (lower: number, upper: number): boolean => {
+    const key = lower * options.length + upper
+    let ok = holds.get(key)
+    if (ok === undefined) {
+      ok = layerSupported(options[upper].rects, options[lower].rects)
+      holds.set(key, ok)
+    }
+    return ok
+  }
+  /** Kinds in use, bottom first, so each holds up the next; null when no order works. */
+  const stackOrder = (): number[] | null => {
+    const used = options
+      .map((_, i) => i)
+      .filter((i) => counts[i] > 0)
+      .sort((p, q) => options[q].count - options[p].count)
+    if (!flat || used.length < 2) return used
+    return (
+      orders(used).find((order) => order.every((k, n) => n === 0 || supports(order[n - 1], k))) ??
+      null
+    )
+  }
+
   // Prefer more units, then fewer kinds of layer, then less depth used.
   let bestUnits = -1
   let bestKinds = 0
   let bestUsed = 0
   let bestCounts: number[] = []
+  let bestOrder: number[] = []
   const counts = new Array<number>(options.length).fill(0)
 
   const consider = (units: number, used: number) => {
@@ -193,20 +225,25 @@ function stackLayers(
     const better =
       units > bestUnits ||
       (units === bestUnits && (kinds < bestKinds || (kinds === bestKinds && used < bestUsed)))
-    if (better) {
-      bestUnits = units
-      bestKinds = kinds
-      bestUsed = used
-      bestCounts = counts.slice()
-    }
+    if (!better) return
+    const order = stackOrder()
+    if (!order) return
+    bestUnits = units
+    bestKinds = kinds
+    bestUsed = used
+    bestCounts = counts.slice()
+    bestOrder = order
   }
 
   const search = (i: number, rest: number, layersLeft: number, units: number) => {
     const o = options[i]
     const max = Math.min(Math.floor(rest / o.thickness), layersLeft)
     if (i === options.length - 1) {
-      counts[i] = max
-      consider(units + max * o.count, stack - rest + max * o.thickness)
+      // As many as fit, or none when this kind cannot lie on the others.
+      for (const c of max > 0 ? [max, 0] : [0]) {
+        counts[i] = c
+        consider(units + c * o.count, stack - rest + c * o.thickness)
+      }
       return
     }
     for (let c = max; c >= 0; c--) {
@@ -216,14 +253,19 @@ function stackLayers(
   }
   search(0, stack, maxLayers, 0)
 
-  return options
-    .map((o, i) => ({
-      thicknessCm: o.thickness / 10,
-      footprintCm: [o.footprint[0] / 10, o.footprint[1] / 10] as [number, number],
-      unitsPerLayer: o.count,
-      layers: bestCounts[i],
-      rects: o.rects,
-    }))
-    .filter((t) => t.layers > 0)
-    .sort((p, q) => q.unitsPerLayer - p.unitsPerLayer)
+  return bestOrder.map((i) => ({
+    thicknessCm: options[i].thickness / 10,
+    footprintCm: [options[i].footprint[0] / 10, options[i].footprint[1] / 10] as [number, number],
+    unitsPerLayer: options[i].count,
+    layers: bestCounts[i],
+    rects: options[i].rects,
+  }))
+}
+
+/** Every ordering of `items`, starting with the order given. */
+function orders(items: number[]): number[][] {
+  if (items.length <= 1) return [items]
+  return items.flatMap((first, i) =>
+    orders([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [first, ...rest]),
+  )
 }
