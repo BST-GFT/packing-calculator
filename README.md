@@ -41,17 +41,25 @@ To change a box, edit `src/data/boxes.ts` and push.
    different face, and the stack can run along the box's height, length or
    width, whichever holds most. With a "Máximo de camadas", only flat layers
    are stacked, up to that number. The weight limit then caps the count
-   (`engine/fit.ts`).
+   (`engine/fit.ts`). No unit hangs over empty space: every unit off the floor
+   rests on at least 75% of its base (`engine/support.ts`).
 3. **The order.** Knowing how many units each box holds, it finds the mix of
-   box sizes that covers the quantity best (`engine/plan.ts`). "Best" is one of:
-   - balanced (default): least volume, where every extra box must save at
-     least `BOX_PENALTY_LITERS` litres to be worth it
-   - fewest boxes
+   box sizes that covers each product's quantity best (`engine/plan.ts`).
+   "Best" is one of:
+   - fewest boxes (default), then least volume
    - least volume
+   - balanced: least volume, where every extra box must save at least
+     `BOX_PENALTY_LITERS` litres to be worth it
    - lowest cost, once every box has a `costBRL`
+4. **Several products.** Each product fills its own boxes as above. What is
+   left over of each is mixed into shared boxes when that saves boxes, packed
+   unit by unit with products marked "Frágil" on top. Other products may rest
+   on a fragile one up to (Máx. camadas − 1) times its weight, or
+   `FRAGILE_LOAD` (3) times when Máx. camadas is empty, set in
+   `src/data/products.ts` (`engine/shipment.ts`, `engine/mixed.ts`).
 
-Steps 2 and 3 are exact for what they search. Step 1 is a strong heuristic:
-it finds the layouts a person would build by hand, but not interlocked
+Steps 2 and 3 are exact for what they search. Steps 1 and 4 are heuristics:
+step 1 finds the layouts a person would build by hand, but not interlocked
 "pinwheel" layouts, so a layer can occasionally be one unit short of the
 theoretical maximum.
 

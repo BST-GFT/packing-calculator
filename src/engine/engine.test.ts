@@ -6,8 +6,11 @@ import { SHIPPING_MODES, boxAllowed } from '../data/shipping.ts'
 import { fitUnitInBox, toMm, type BoxFit } from './fit.ts'
 import { freightWeight } from './freight.ts'
 import { packLayer, type Rect } from './layer.ts'
+import { packMixed, type BoxRules, type MixedBox, type MixedItem } from './mixed.ts'
 import { placeUnits, type PlacedUnit } from './place.ts'
 import { planOrder } from './plan.ts'
+import { planShipment, type Product } from './shipment.ts'
+import { MIN_SUPPORT, supportedShare } from './support.ts'
 import type { Axis, BoxType, PackingRules, Unit } from './types.ts'
 
 const RULES: PackingRules = { maxGrossKg: 25, protectionKg: 0, lossCm: 0, keepUpright: false }
@@ -107,6 +110,105 @@ function assertPlacedValid(fit: BoxFit, placed: PlacedUnit[], rules: PackingRule
       const apart = axes.some((a) => p.at[a] + p.size[a] <= q.at[a] || q.at[a] + q.size[a] <= p.at[a])
       assert.ok(apart, 'units do not overlap')
     }
+  }
+
+  // Every unit off the floor rests on the tops of units below it.
+  const base = (p: PlacedUnit): Rect => ({ x: p.at.length, y: p.at.width, w: p.size.length, h: p.size.width })
+  const tops = new Map<number, Rect[]>()
+  for (const p of placed) {
+    const top = p.at.height + p.size.height
+    tops.set(top, [...(tops.get(top) ?? []), base(p)])
+  }
+  for (const p of placed) {
+    if (p.at.height === 0) continue
+    const share = supportedShare(base(p), tops.get(p.at.height) ?? [])
+    assert.ok(share >= MIN_SUPPORT, `unit rests on units below (${Math.round(share * 100)}%)`)
+  }
+}
+
+/** Checks a box of mixed products against every rule the packer has to keep. */
+function assertMixedValid(m: MixedBox, items: MixedItem[], rules: BoxRules) {
+  const axes: Axis[] = ['length', 'width', 'height']
+  const byProduct = new Map(items.map((i) => [i.product, i]))
+  const placed = m.placed
+  for (const p of placed) {
+    const item = byProduct.get(p.product)!
+    for (const a of axes) {
+      const room = toMm(m.box.dims[a] - rules.lossCm)
+      assert.ok(p.at[a] >= 0 && p.at[a] + p.size[a] <= room, 'unit inside the box')
+    }
+    const sides = axes.map((a) => toMm(item.dims[a])).sort((x, y) => x - y)
+    assert.deepEqual(axes.map((a) => p.size[a]).sort((x, y) => x - y), sides, 'unit keeps its size')
+    if (item.keepUpright) assert.equal(p.size.height, toMm(item.dims.height), 'upright unit stays upright')
+  }
+  for (let i = 0; i < placed.length; i++) {
+    for (let j = i + 1; j < placed.length; j++) {
+      const p = placed[i]
+      const q = placed[j]
+      const apart = axes.some((a) => p.at[a] + p.size[a] <= q.at[a] || q.at[a] + q.size[a] <= p.at[a])
+      assert.ok(apart, 'units do not overlap')
+    }
+  }
+
+  // What each unit rests on, then how many units are stacked above each one.
+  const base = (p: PlacedUnit): Rect => ({ x: p.at.length, y: p.at.width, w: p.size.length, h: p.size.width })
+  const restsOn = placed.map((p) =>
+    p.at.height === 0
+      ? []
+      : placed.filter(
+          (q) => q.at.height + q.size.height === p.at.height && supportedShare(base(p), [base(q)]) > 0,
+        ),
+  )
+  placed.forEach((p, i) => {
+    if (p.at.height === 0) return
+    const share = supportedShare(base(p), restsOn[i].map(base))
+    assert.ok(share >= MIN_SUPPORT, `unit rests on units below (${Math.round(share * 100)}%)`)
+  })
+
+  // Weight passes down in proportion to contact. A fragile unit carries in
+  // other products at most its own weight times one less than its layer
+  // limit, or fragileLoad times without one, and nothing of another product
+  // whose weight is unknown.
+  const carried = new Map<PlacedUnit, Map<number, number>>()
+  for (const p of [...placed].sort((a, b) => b.at.height - a.at.height)) {
+    const passing = new Map(carried.get(p) ?? [])
+    passing.set(p.product, (passing.get(p.product) ?? 0) + byProduct.get(p.product)!.weightKg)
+    const contacts = restsOn[placed.indexOf(p)].map((q) => ({ q, area: supportedShare(base(p), [base(q)]) }))
+    const total = contacts.reduce((sum, c) => sum + c.area, 0)
+    for (const { q, area } of contacts) {
+      const theirs = carried.get(q) ?? new Map<number, number>()
+      for (const [product, kg] of passing) theirs.set(product, (theirs.get(product) ?? 0) + (kg * area) / total)
+      carried.set(q, theirs)
+    }
+  }
+  for (const p of placed) {
+    const item = byProduct.get(p.product)!
+    if (!item.fragile) continue
+    let others = 0
+    for (const [product, kg] of carried.get(p) ?? []) {
+      if (product === p.product) continue
+      assert.ok(byProduct.get(product)!.weightKg > 0, 'nothing of unknown weight on a fragile unit')
+      others += kg
+    }
+    const factor = Number.isFinite(item.maxLayers) ? item.maxLayers - 1 : rules.fragileLoad
+    assert.ok(others <= factor * item.weightKg + 1e-9, 'fragile unit not overloaded')
+  }
+  const above = new Map<PlacedUnit, number>()
+  for (const p of [...placed].sort((a, b) => b.at.height - a.at.height)) {
+    const mine = above.get(p) ?? 0
+    for (const q of restsOn[placed.indexOf(p)]) above.set(q, Math.max(above.get(q) ?? 0, mine + 1))
+  }
+  for (const p of placed) {
+    const limit = byProduct.get(p.product)!.maxLayers
+    assert.ok((above.get(p) ?? 0) <= limit - 1, 'layer limit kept')
+  }
+
+  const weight = placed.reduce((sum, p) => sum + byProduct.get(p.product)!.weightKg, 0)
+  const tare = m.box.emptyWeightKg + rules.protectionKg
+  assert.ok(Math.abs(m.grossKg - (tare + weight)) < 1e-9, 'gross weight adds up')
+  assert.ok(m.grossKg <= Math.min(rules.maxGrossKg, m.box.maxWeightKg ?? Infinity) + 1e-9, 'within weight limit')
+  for (const c of m.contents) {
+    assert.equal(placed.filter((p) => p.product === c.product).length, c.units, 'contents match')
   }
 }
 
@@ -309,6 +411,24 @@ describe('placing units in 3D', () => {
     }
   })
 
+  it('rests every unit on the floor or on units below, upright or with a layer limit', () => {
+    const rnd = random(41)
+    const rules = { ...RULES, lossCm: 0.5 }
+    for (let n = 0; n < 60; n++) {
+      const u = unit(
+        3 + Math.floor(rnd() * 250) / 10,
+        3 + Math.floor(rnd() * 200) / 10,
+        2 + Math.floor(rnd() * 150) / 10,
+      )
+      for (const extra of [{ keepUpright: true }, { maxLayers: 1 + Math.floor(rnd() * 4) }]) {
+        for (const b of BOXES) {
+          const fit = fitUnitInBox(u, b, { ...rules, ...extra })
+          assertPlacedValid(fit, placeUnits(fit, fit.spaceCapacity), rules)
+        }
+      }
+    }
+  })
+
   it('keeps the height vertical when units must stand upright', () => {
     const rules = { ...RULES, keepUpright: true }
     const fit = fitUnitInBox(unit(12, 9, 7), box('A', 40, 30, 20), rules)
@@ -335,6 +455,218 @@ describe('placing units in 3D', () => {
 
   it('places nothing when the unit does not fit', () => {
     assert.deepEqual(placeUnits(fitUnitInBox(unit(50, 50, 50), box('A', 40, 30, 20), RULES)), [])
+  })
+})
+
+describe('mixing products in a box', () => {
+  const ROOM: BoxRules = { lossCm: 0, maxGrossKg: 25, protectionKg: 0, fragileLoad: 3 }
+  const item = (
+    product: number,
+    l: number,
+    w: number,
+    h: number,
+    count: number,
+    extra: Partial<MixedItem> = {},
+  ): MixedItem => ({
+    product,
+    dims: { length: l, width: w, height: h },
+    weightKg: 0,
+    keepUpright: false,
+    maxLayers: Infinity,
+    fragile: false,
+    count,
+    ...extra,
+  })
+  const product = (u: Unit, quantity: number, extra: Partial<Product> = {}): Product => ({
+    unit: u,
+    quantity,
+    keepUpright: false,
+    maxLayers: Infinity,
+    fragile: false,
+    ...extra,
+  })
+  const fitsFor = (products: Product[]) =>
+    products.map((p) =>
+      BOXES.map((b) =>
+        fitUnitInBox(p.unit, b, { ...RULES, keepUpright: p.keepUpright, maxLayers: p.maxLayers }),
+      ),
+    )
+
+  const heights = (m: MixedBox, product: number) =>
+    m.placed.filter((p) => p.product === product).map((p) => p.at.height)
+
+  it('puts a fragile product on top of a heavier one', () => {
+    // 800 g cubes are too heavy for 200 g fragile units, so the cubes go first
+    // and fill the floor; the fragile units can only go above them.
+    const items = [
+      item(0, 10, 10, 5, 12, { fragile: true, weightKg: 0.2 }),
+      item(1, 10, 10, 10, 24, { weightKg: 0.8 }),
+    ]
+    const boxes = packMixed(items, [box('A', 40, 30, 30)], ROOM)!
+    assert.equal(boxes.length, 1)
+    assertMixedValid(boxes[0], items, ROOM)
+    assert.ok(Math.min(...heights(boxes[0], 0)) >= 200)
+  })
+
+  it('puts fragile products above light ones when there is room', () => {
+    const items = [
+      item(0, 10, 10, 10, 12, { fragile: true, weightKg: 0.25 }),
+      item(1, 10, 10, 2, 12, { weightKg: 0.05 }),
+    ]
+    const boxes = packMixed(items, [box('A', 40, 30, 20)], ROOM)!
+    assert.equal(boxes.length, 1)
+    assertMixedValid(boxes[0], items, ROOM)
+    assert.ok(heights(boxes[0], 0).every((z) => z >= 20))
+  })
+
+  it('lets light products ride on fragile ones when that is what fits', () => {
+    // The four cups need the whole floor and cannot stand on the one bag, so
+    // the bag goes on top of them.
+    const items = [
+      item(0, 20, 15, 10, 4, { fragile: true, weightKg: 0.3 }),
+      item(1, 10, 10, 2, 1, { weightKg: 0.05 }),
+    ]
+    const boxes = packMixed(items, [box('A', 40, 30, 12)], ROOM)!
+    assert.equal(boxes.length, 1)
+    assertMixedValid(boxes[0], items, ROOM)
+    assert.ok(heights(boxes[0], 0).every((z) => z === 0))
+    assert.ok(heights(boxes[0], 1).every((z) => z === 100))
+  })
+
+  it('lets a fragile product carry less when it has a layer limit', () => {
+    // The four cups need the whole floor, so the 500 g bag can only go on top.
+    // Without a limit a 300 g cup carries three times its weight, so it fits;
+    // stacked at most two high, a cup carries only its own weight, so it does not.
+    const items = (maxLayers: number) => [
+      item(0, 20, 15, 10, 4, { fragile: true, weightKg: 0.3, maxLayers }),
+      item(1, 10, 10, 2, 1, { weightKg: 0.5 }),
+    ]
+    const free = packMixed(items(Infinity), [box('A', 40, 30, 12)], ROOM)!
+    assert.equal(free.length, 1)
+    assertMixedValid(free[0], items(Infinity), ROOM)
+    const limited = packMixed(items(2), [box('A', 40, 30, 12)], ROOM)!
+    assert.equal(limited.length, 2)
+    for (const m of limited) assertMixedValid(m, items(2), ROOM)
+  })
+
+  it('keeps products too heavy for a fragile one underneath it', () => {
+    // 900 g mugs are more than three times a 250 g cup: they go on the floor
+    // and the cups may stand on them, never the other way round.
+    const items = [
+      item(0, 10, 10, 10, 12, { fragile: true, weightKg: 0.25 }),
+      item(1, 10, 10, 5, 4, { weightKg: 0.9 }),
+    ]
+    const boxes = packMixed(items, [box('A', 40, 30, 20)], ROOM)!
+    assert.equal(boxes.length, 1)
+    assertMixedValid(boxes[0], items, ROOM)
+    assert.ok(heights(boxes[0], 1).every((z) => z === 0))
+  })
+
+  it('puts nothing on a fragile product of unknown weight', () => {
+    // With no weight to judge by, the bags go underneath the cups.
+    const items = [
+      item(0, 10, 10, 10, 12, { fragile: true }),
+      item(1, 10, 10, 2, 24, { weightKg: 0.05 }),
+    ]
+    const boxes = packMixed(items, [box('A', 40, 30, 20)], ROOM)!
+    assert.equal(boxes.length, 1)
+    assertMixedValid(boxes[0], items, ROOM)
+    assert.ok(heights(boxes[0], 0).every((z) => z >= 40))
+  })
+
+  it('keeps every rule with random products in the real boxes', () => {
+    const rnd = random(53)
+    const rules: BoxRules = { lossCm: 0.5, maxGrossKg: 25, protectionKg: 0.2, fragileLoad: 3 }
+    for (let n = 0; n < 25; n++) {
+      const items: MixedItem[] = []
+      const kinds = 2 + Math.floor(rnd() * 2)
+      for (let p = 0; p < kinds; p++) {
+        items.push(
+          item(
+            p,
+            3 + Math.floor(rnd() * 200) / 10,
+            3 + Math.floor(rnd() * 150) / 10,
+            2 + Math.floor(rnd() * 120) / 10,
+            1 + Math.floor(rnd() * 25),
+            {
+              weightKg: Math.floor(rnd() * 800) / 1000,
+              keepUpright: rnd() < 0.3,
+              maxLayers: rnd() < 0.3 ? 1 + Math.floor(rnd() * 3) : Infinity,
+              fragile: rnd() < 0.3,
+            },
+          ),
+        )
+      }
+      const boxes = packMixed(items, BOXES, rules)
+      assert.ok(boxes, 'every unit finds a box')
+      for (const m of boxes) assertMixedValid(m, items, rules)
+      for (const kind of items) {
+        const total: number = boxes.reduce(
+          (sum, m) => sum + (m.contents.find((c) => c.product === kind.product)?.units ?? 0),
+          0,
+        )
+        assert.equal(total, kind.count, 'every unit is packed once')
+      }
+    }
+  })
+
+  it('mixes leftovers when that saves a box', () => {
+    // Alone, 30 cubes take a G and 10 half cubes a P; together they fit one G.
+    const products = [
+      product(unit(10, 10, 10), 30),
+      product(unit(10, 10, 5), 10, { fragile: true }),
+    ]
+    const shipment = planShipment(products, fitsFor(products), 'boxes', ROOM)!
+    assert.equal(shipment.totalBoxes, 1)
+    assert.equal(shipment.lines[0].box.id, 'G')
+    assert.deepEqual(shipment.lines[0].contents, [
+      { product: 0, units: 30 },
+      { product: 1, units: 10 },
+    ])
+    const items = products.map((p, i) => ({ ...item(i, 0, 0, 0, 0), ...p, dims: p.unit.dims, weightKg: 0, count: p.quantity }))
+    assertMixedValid(
+      { box: shipment.lines[0].box, placed: shipment.lines[0].placed!, contents: shipment.lines[0].contents, grossKg: shipment.lines[0].grossKgPerBox },
+      items,
+      ROOM,
+    )
+  })
+
+  it('ships every unit of every product exactly once', () => {
+    const rnd = random(61)
+    for (let n = 0; n < 20; n++) {
+      const products = [0, 1, 2].map(() =>
+        product(
+          unit(4 + Math.floor(rnd() * 150) / 10, 4 + Math.floor(rnd() * 120) / 10, 3 + Math.floor(rnd() * 100) / 10, 0.2),
+          1 + Math.floor(rnd() * 120),
+          { fragile: rnd() < 0.4, maxLayers: rnd() < 0.3 ? 2 : Infinity },
+        ),
+      )
+      for (const priority of ['boxes', 'volume', 'balanced'] as const) {
+        const shipment = planShipment(products, fitsFor(products), priority, ROOM, { boxPenaltyLiters: 12 })!
+        products.forEach((p, i) => {
+          const shipped = shipment.lines.reduce(
+            (sum, l) => sum + l.boxes * (l.contents.find((c) => c.product === i)?.units ?? 0),
+            0,
+          )
+          assert.equal(shipped, p.quantity)
+        })
+        assert.equal(shipment.totalBoxes, shipment.lines.reduce((sum, l) => sum + l.boxes, 0))
+      }
+    }
+  })
+
+  it('plans a single product as before', () => {
+    const p = product(unit(10.5, 8, 5, 0.25), 500)
+    const fits = fitsFor([p])
+    for (const priority of ['boxes', 'volume', 'balanced'] as const) {
+      const plan = planOrder(fits[0], 500, priority, { boxPenaltyLiters: 12 })!
+      const shipment = planShipment([p], fits, priority, ROOM, { boxPenaltyLiters: 12 })!
+      assert.deepEqual(
+        shipment.lines.map((l) => `${l.boxes}x${l.box.id}:${l.contents[0].units}`),
+        plan.lines.map((l) => `${l.boxes}x${l.box.id}:${l.unitsPerBox}`),
+      )
+      assert.equal(shipment.spareUnits, plan.spareUnits)
+    }
   })
 })
 

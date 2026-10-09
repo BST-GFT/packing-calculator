@@ -34,6 +34,12 @@ export function list(parts: string[]): string {
   return `${parts.slice(0, -1).join(', ')} e ${parts[parts.length - 1]}`
 }
 
+/** How many colours tell products apart; the CSS defines --p1 to --p6. */
+export const PRODUCT_COLORS = 6
+
+/** The colour that marks product `index` in the list and in the 3D view. */
+export const productColor = (index: number): string => `var(--p${(index % PRODUCT_COLORS) + 1})`
+
 export const AXIS: Record<Axis, string> = {
   length: 'comprimento',
   width: 'largura',

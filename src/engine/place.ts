@@ -19,6 +19,8 @@ export interface PlacedUnit {
   layer: number
   /** Lies the other way round from the first unit of its layer. */
   turned: boolean
+  /** Index of the unit's product in the order. */
+  product: number
 }
 
 /**
@@ -26,7 +28,7 @@ export interface PlacedUnit {
  * number that goes in a full box, so under a weight limit the last layer
  * drawn may be partial.
  */
-export function placeUnits(fit: BoxFit, count = fit.capacity): PlacedUnit[] {
+export function placeUnits(fit: BoxFit, count = fit.capacity, product = 0): PlacedUnit[] {
   const { stackAxis, plane } = fit
   const point = (along: number, u: number, v: number): Point => {
     const p: Point = { length: 0, width: 0, height: 0 }
@@ -50,6 +52,7 @@ export function placeUnits(fit: BoxFit, count = fit.capacity): PlacedUnit[] {
           size: point(thickness, r.w, r.h),
           layer,
           turned: r.w !== reference,
+          product,
         })
       }
       depth += thickness

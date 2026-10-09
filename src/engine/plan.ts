@@ -16,11 +16,13 @@
  */
 
 import { grossKg, toMm, volumeCm3, type BoxFit } from './fit.ts'
+import type { BoxType } from './types.ts'
 
 export type Priority = 'balanced' | 'volume' | 'boxes' | 'cost'
 
 export interface PlanLine {
   fit: BoxFit
+  box: BoxType
   /** Number of boxes on this line. */
   boxes: number
   unitsPerBox: number
@@ -160,6 +162,7 @@ export function planOrder(
     if (full > 0) {
       lines.push({
         fit,
+        box: fit.box,
         boxes: full,
         unitsPerBox: cap[i],
         grossKgPerBox: grossKg(fit, cap[i]),
@@ -168,7 +171,14 @@ export function planOrder(
     }
     if (isPartial) {
       const units = cap[i] - spare
-      partial = { fit, boxes: 1, unitsPerBox: units, grossKgPerBox: grossKg(fit, units), partial: true }
+      partial = {
+        fit,
+        box: fit.box,
+        boxes: 1,
+        unitsPerBox: units,
+        grossKgPerBox: grossKg(fit, units),
+        partial: true,
+      }
     }
   }
   if (partial) lines.push(partial)
