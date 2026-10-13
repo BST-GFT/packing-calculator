@@ -160,7 +160,7 @@ export function MixedArrangement({
   const allowed = (factor: number) =>
     factor === 0
       ? 'nada de outro produto vai sobre suas unidades'
-      : `sobre cada unidade outros produtos somam no máximo ${
+      : `sobre cada unidade, outros produtos somam no máximo ${
           factor === 1 ? 'o próprio peso dela' : `${num(factor, 0)} vezes o peso dela`
         }`
 
@@ -180,7 +180,7 @@ export function MixedArrangement({
         .filter((c) => fragile(c.product))
         .map((c) => (
           <p className="note" key={c.product}>
-            {names[c.product]} é frágil: vai por cima, e {allowed(allowances[c.product]!)}.
+            {names[c.product]} é frágil: {allowed(allowances[c.product]!)}.
           </p>
         ))}
       <ol className="steps">

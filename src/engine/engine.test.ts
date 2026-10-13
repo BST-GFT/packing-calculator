@@ -549,6 +549,24 @@ describe('mixing products in a box', () => {
     for (const m of limited) assertMixedValid(m, items(2), ROOM)
   })
 
+  it('needs no bigger box when a product is marked fragile', () => {
+    // Found in testing (2026-10-13): 15 boards and 20 thin sheets fit a G, but
+    // with the sheets fragile the boards went in first, turned every which way
+    // over the floor, and the sheets no longer fitted beside them: a CM.
+    const products = (fragile: boolean) => [
+      product(unit(20, 22, 2.5, 0.41), 15),
+      product(unit(31, 35, 0.5, 0.215), 20, { fragile }),
+    ]
+    for (const fragile of [false, true]) {
+      const shipment = planShipment(products(fragile), fitsFor(products(fragile)), 'boxes', ROOM)!
+      assert.deepEqual(
+        shipment.lines.map((l) => `${l.boxes}x${l.box.id}`),
+        ['1xG'],
+        `fragile: ${fragile}`,
+      )
+    }
+  })
+
   it('keeps products too heavy for a fragile one underneath it', () => {
     // 900 g mugs are more than three times a 250 g cup: they go on the floor
     // and the cups may stand on them, never the other way round.

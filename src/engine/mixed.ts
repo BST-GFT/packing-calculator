@@ -3,8 +3,9 @@
  *
  * Used for what is left over once each product has filled its own boxes.
  * Each unit goes to the lowest free corner that placed units leave (an
- * "extreme point"), then the one furthest back, then furthest left, in
- * whichever allowed orientation gets there.
+ * "extreme point"), then the one furthest back, then furthest left. Each
+ * product keeps one way of lying, chosen by trying them all, so its units
+ * form neat rows and layers instead of filling gaps every which way.
  *
  * The order of products puts fragile ones on top: every other product goes
  * in first. Light products ride on top of fragile ones only when needed: one
@@ -106,21 +107,43 @@ interface Strategy {
   rowsAlong: 'length' | 'width'
   /** Pack light products after the fragile ones, so they may go on top of them. */
   lightOnFragile: boolean
+  /** Each product keeps one way of lying; otherwise every unit turns freely. */
+  oneWay: boolean
 }
 
 const unitVolume = (i: MixedItem) => volumeCm3(i.dims)
-const STRATEGIES: Strategy[] = [
+const ORDERS: Array<Omit<Strategy, 'oneWay'>> = [
   { order: (a, b) => unitVolume(b) - unitVolume(a), rowsAlong: 'length', lightOnFragile: false },
   { order: (a, b) => unitVolume(b) - unitVolume(a), rowsAlong: 'width', lightOnFragile: false },
   { order: (a, b) => b.count - a.count, rowsAlong: 'length', lightOnFragile: false },
   { order: (a, b) => unitVolume(b) - unitVolume(a), rowsAlong: 'length', lightOnFragile: true },
 ]
+// Neat packing first. Units turning freely fill gaps better now and then, so
+// those orders are tried when the neat ones leave something out.
+const STRATEGIES: Strategy[] = [
+  ...ORDERS.map((s) => ({ ...s, oneWay: true })),
+  ...ORDERS.map((s) => ({ ...s, oneWay: false })),
+]
+
+/** Recent results, since the page plans the same leftovers for several priorities. */
+const recent = new Map<string, MixedBox[] | null>()
+const RECENT = 20
 
 /**
  * Packs `items` into as few boxes as possible, each the smallest of `boxes`
- * that holds its share. Returns null when some unit fits in no box.
+ * that holds its share. Returns null when some unit fits in no box. The
+ * result may be shared with other calls, so it must not be changed.
  */
 export function packMixed(items: MixedItem[], boxes: BoxType[], rules: BoxRules): MixedBox[] | null {
+  const key = JSON.stringify([items, boxes, rules])
+  if (recent.has(key)) return recent.get(key)!
+  const result = pack(items, boxes, rules)
+  recent.set(key, result)
+  if (recent.size > RECENT) recent.delete(recent.keys().next().value!)
+  return result
+}
+
+function pack(items: MixedItem[], boxes: BoxType[], rules: BoxRules): MixedBox[] | null {
   const bySize = [...boxes].sort((a, b) => volumeCm3(a.dims) - volumeCm3(b.dims))
   if (bySize.length === 0) return []
 
@@ -153,7 +176,7 @@ export function packMixed(items: MixedItem[], boxes: BoxType[], rules: BoxRules)
   return result
 }
 
-/** Most units placed, then the lowest stack. */
+/** The first order that fits everything; failing that, most units placed, then the lowest stack. */
 function bestPacking(items: MixedItem[], box: BoxType, rules: BoxRules): Packing {
   let best: Packing | null = null
   for (const strategy of STRATEGIES) {
@@ -163,7 +186,8 @@ function bestPacking(items: MixedItem[], box: BoxType, rules: BoxRules): Packing
       packing.placed.length > best.placed.length ||
       (packing.placed.length === best.placed.length && packing.heightMm < best.heightMm)
     if (better) best = packing
-    if (packing.left.every((n) => n === 0) && strategy === STRATEGIES[0]) break
+    // Everything fits: keep the first order that manages it, the neatest.
+    if (packing.left.every((n) => n === 0)) return packing
   }
   return best!
 }
@@ -314,9 +338,9 @@ function packOnce(items: MixedItem[], box: BoxType, rules: BoxRules, strategy: S
     points.sort((a, b) => before(rank(a), rank(b)))
   }
 
-  for (const index of order) {
+  /** Places as many units of item `index` as fit, turned only in the given ways. */
+  const placeAll = (index: number, shapes: Shape[]) => {
     const item = items[index]
-    const shapes = orientations(item)
     // Spots where no orientation of this item fits stay that way while it is packed.
     const blocked = new Set<string>()
     let lastShape = -1
@@ -364,6 +388,43 @@ function packOnce(items: MixedItem[], box: BoxType, rules: BoxRules, strategy: S
     }
   }
 
+  // Each product is packed lying one way, as a person would, unless mixing
+  // orientations does better. Every way is tried from the same starting point;
+  // the one that places the most units wins, then the lowest pile, then the
+  // one leaving the most floor free for what comes next.
+  for (const index of order) {
+    const choices = strategy.oneWay ? layings(items[index]) : [orientations(items[index])]
+    if (choices.length === 1) {
+      placeAll(index, choices[0])
+      continue
+    }
+    const start = { count: placed.length, points, loads: placed.map((u) => u.load), left: left[index], weight }
+    let best: { score: number[]; units: Placed[]; loads: number[]; points: typeof points; left: number; weight: number } | null = null
+    for (const shapes of choices) {
+      placeAll(index, shapes)
+      const mine = placed.slice(start.count)
+      const score = [
+        -mine.length,
+        placed.reduce((h, u) => Math.max(h, u.z + u.dz), 0),
+        mine.reduce((area, u) => area + (u.z === 0 ? u.dx * u.dy : 0), 0),
+      ]
+      if (!best || before(score, best.score) < 0) {
+        best = { score, units: mine, loads: placed.map((u) => u.load), points, left: left[index], weight }
+      }
+      // Back to where this product started, for the next way to try.
+      placed.length = start.count
+      start.loads.forEach((load, i) => (placed[i].load = load))
+      points = start.points
+      left[index] = start.left
+      weight = start.weight
+    }
+    placed.push(...best!.units)
+    best!.loads.forEach((load, i) => (placed[i].load = load))
+    points = best!.points
+    left[index] = best!.left
+    weight = best!.weight
+  }
+
   return {
     placed,
     left,
@@ -380,6 +441,18 @@ function orientations(item: MixedItem): Shape[] {
     ? [[l, w, h], [w, l, h]]
     : [[l, w, h], [w, l, h], [l, h, w], [h, l, w], [w, h, l], [h, w, l]]
   return all.filter((s, i) => all.findIndex((t) => t[0] === s[0] && t[1] === s[1] && t[2] === s[2]) === i)
+}
+
+/**
+ * The ways to pack a product: lying on each of its faces (turning only around
+ * the vertical), then free to turn any way. A unit kept upright, or a cube,
+ * has just one.
+ */
+function layings(item: MixedItem): Shape[][] {
+  const all = orientations(item)
+  const heights = [...new Set(all.map((s) => s[2]))]
+  if (heights.length === 1) return [all]
+  return [...heights.map((h) => all.filter((s) => s[2] === h)), all]
 }
 
 function toMixedBox(items: MixedItem[], box: BoxType, packing: Packing, rules: BoxRules): MixedBox {
