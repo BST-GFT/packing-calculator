@@ -186,8 +186,16 @@ Marked `TO CONFIRM` or `TO CALIBRATE` in `src/data/`. Ask before assuming:
 - Layer packing is a strong heuristic, not a proof of the maximum. It does not
   find interlocked "pinwheel" layouts, so a layer can be one unit short.
 - Mixed boxes are packed unit by unit into the lowest free corner, trying a
-  few orders and keeping the most compact. That is a heuristic: a person may
-  find a tighter mixed box now and then.
+  few orders. Each order is first tried with every product keeping one way of
+  lying (or a free mix, if that does better), chosen by trying each one; only
+  if none of those fits everything are the same orders tried with every unit
+  turning freely. Choosing orientation unit by unit alone let a product spread
+  over the floor every which way, so that a fragile one packed after it could
+  need a bigger box (2026-10-13, test "needs no bigger box when a product is
+  marked fragile"). Over 400 random mixed orders, the combined packer used 706
+  boxes against 730 for unit-by-unit alone, and was worse in 6 orders, all
+  needing two or more mixed boxes. It is still a heuristic: a person may find
+  a tighter mixed box now and then.
 - The calculation is geometric. Fragility and crushing are only what the user
   states per product (Em pé, Máx. camadas, Frágil); no bulging.
 - Orders above 2,000,000 units are bulk-filled before the exact search, so the
