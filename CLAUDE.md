@@ -31,7 +31,7 @@ npm run dev       # page and server at http://localhost:5173, local database
 npm test          # engine and proposta tests (Node's built-in runner)
 npm run typecheck # generates Cloudflare's types, checks the page and the server
 npm run build     # page in dist/client/, server in dist/embalagem/
-npm run db:remote # applies new migrations/ to the real database (needs `npx wrangler login`)
+npm run db:remote # applies new migrations/ to the real and preview databases (needs `npx wrangler login`)
 ```
 
 ## Hosting, branches and publishing
@@ -41,7 +41,13 @@ npm run db:remote # applies new migrations/ to the real database (needs `npx wra
   Cloudflare account. A custom address (`embalagem.bestgift.com.br`) is
   planned once Best Gift's IT can set up the domain in Cloudflare.
 - Cloudflare builds on its own from the GitHub repo (Workers Builds):
-  `main` is production; other branches get preview versions.
+  `main` is production (`npx wrangler deploy`); other branches get a Preview
+  (`npx wrangler preview`, named after the branch). Previews use their own
+  database, `embalagem-preview` (the `previews` block in `wrangler.jsonc`), so
+  testing never touches the real propostas. `npm run db:remote` brings both
+  databases up to date. A failed build does not show in Cloudflare's
+  Deployments list; GitHub shows it as a failed "Workers Builds" check on the
+  commit, with a link to the log.
 - The old GitHub Pages address only forwards to the new one
   (`.github/workflows/deploy.yml` publishes `redirect/`).
 - Never commit straight to `main`. Work on `develop`; a pull request into

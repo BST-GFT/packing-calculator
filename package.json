@@ -13,7 +13,7 @@
     "test": "node --test \"src/**/*.test.ts\"",
     "typecheck": "wrangler types && tsc --noEmit && tsc --noEmit -p worker",
     "db:local": "wrangler d1 migrations apply embalagem --local",
-    "db:remote": "wrangler d1 migrations apply embalagem --remote"
+    "db:remote": "wrangler d1 migrations apply embalagem --remote && wrangler d1 migrations apply embalagem --remote --preview"
   },
   "dependencies": {
     "react": "^19.2.0",

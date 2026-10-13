@@ -70,12 +70,13 @@ theoretical maximum.
 ## Branches and publishing
 
 - Work on `develop`. Every push there runs the tests (`ci.yml`), and Cloudflare
-  builds a preview version.
+  builds a preview at `develop-embalagem.bestgift.workers.dev`, which has its
+  own test database.
 - Open a pull request from `develop` into `main` when a version is ready.
 - Merging into `main` publishes: Cloudflare builds and deploys it on its own.
 - A change to the database tables goes in a new file in `migrations/`, applied
-  to the real database with `npm run db:remote` before the code that needs it
-  is published.
+  to the real and preview databases with `npm run db:remote` before the code
+  that needs it is published.
 
 ## To confirm with logistics
 
