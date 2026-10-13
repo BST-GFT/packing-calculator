@@ -1,0 +1,12 @@
+// Cloudflare Workers configuration: how the page is published.
+// The page is the static build in dist/; any path without a file of its own
+// gets index.html, so the page can have its own addresses later.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "embalagem",
+  "compatibility_date": "2026-09-29",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}
