@@ -1,8 +1,8 @@
 /** The products of the order: one row per product, added and removed freely. */
 
-import { FRAGILE_LOAD } from '../data/products.ts'
+import { useSettings } from '../settings/context.tsx'
 import { Field, Segmented } from './controls.tsx'
-import { productColor } from './format.ts'
+import { num, productColor } from './format.ts'
 
 /** What was typed for one product, kept as text until it is calculated. */
 export interface ProductInput {
@@ -46,6 +46,7 @@ export function Products({
   weightUnit: 'g' | 'kg'
   onWeightUnit: (unit: 'g' | 'kg') => void
 }) {
+  const { fragileLoad } = useSettings().settings
   const many = products.length > 1
   const update = (id: number, change: Partial<ProductInput>) =>
     onChange(products.map((p) => (p.id === id ? { ...p, ...change } : p)))
@@ -157,7 +158,7 @@ export function Products({
         <strong>Máx. camadas:</strong> quantas unidades podem ficar uma sobre a outra, contando outros
         produtos apoiados em cima; vazio é sem limite. <strong>Frágil:</strong> numa caixa com outros
         produtos, vai por cima ou ao lado deles. Sobre cada unidade, outros produtos somam no máximo{' '}
-        {FRAGILE_LOAD} vezes o peso dela, ou (Máx. camadas − 1) vezes se esse campo estiver
+        {num(fragileLoad)} vezes o peso dela, ou (Máx. camadas − 1) vezes se esse campo estiver
         preenchido. Informe o peso para isso valer.
       </p>
     </fieldset>

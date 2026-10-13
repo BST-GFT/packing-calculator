@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 import logoUrl from './assets/logo.jpg'
 import { loadProposal } from './proposal/api.ts'
 import type { Proposal } from './proposal/format.ts'
+import { SettingsProvider, useSettings } from './settings/context.tsx'
+import { Admin } from './ui/Admin.tsx'
 import { Calculator } from './ui/Calculator.tsx'
 import { ProposalList } from './ui/ProposalList.tsx'
 
@@ -13,16 +15,19 @@ import { ProposalList } from './ui/ProposalList.tsx'
  *   #nova           a new proposta
  *   #carregar       the list of saved propostas
  *   #proposta/12    saved proposta 12
+ *   #admin          the admin area, behind the admin password
  */
 type Screen =
   | { name: 'start' }
   | { name: 'new' }
   | { name: 'list' }
   | { name: 'proposal'; id: number }
+  | { name: 'admin' }
 
 function screenOf(hash: string): Screen {
   if (hash === '#nova') return { name: 'new' }
   if (hash === '#carregar') return { name: 'list' }
+  if (hash === '#admin') return { name: 'admin' }
   const proposal = /^#proposta\/(\d+)$/.exec(hash)
   if (proposal) return { name: 'proposal', id: Number(proposal[1]) }
   return { name: 'start' }
@@ -45,7 +50,7 @@ export function App() {
   }, [])
 
   return (
-    <>
+    <SettingsProvider>
       <header className="top">
         <a className="home" href="#" aria-label="Início">
           <img className="logo" src={logoUrl} alt="Best Shipping" width={638} height={144} />
@@ -60,11 +65,36 @@ export function App() {
       </header>
 
       {screen.name === 'start' && <Start />}
-      {screen.name === 'new' && <Calculator key={`new-${fresh}`} loaded={null} />}
+      {screen.name === 'new' && (
+        <WithSettings>
+          <Calculator key={`new-${fresh}`} loaded={null} />
+        </WithSettings>
+      )}
       {screen.name === 'list' && <ProposalList />}
-      {screen.name === 'proposal' && <Saved key={screen.id} id={screen.id} />}
-    </>
+      {screen.name === 'proposal' && (
+        <WithSettings>
+          <Saved key={screen.id} id={screen.id} />
+        </WithSettings>
+      )}
+      {screen.name === 'admin' && (
+        <WithSettings>
+          <Admin />
+        </WithSettings>
+      )}
+    </SettingsProvider>
   )
+}
+
+/** The calculator and the admin's form start from the shared settings, so they wait for them. */
+function WithSettings({ children }: { children: ReactNode }) {
+  if (useSettings().status === 'loading') {
+    return (
+      <main className="page">
+        <p className="empty">Carregando…</p>
+      </main>
+    )
+  }
+  return children
 }
 
 function Start() {
@@ -77,6 +107,9 @@ function Start() {
       <a className="start-choice" href="#carregar">
         <strong>Carregar proposta</strong>
         <span>Abrir uma proposta salva, para consultar ou usar como base de uma nova.</span>
+      </a>
+      <a className="start-admin" href="#admin">
+        Administração
       </a>
     </main>
   )

@@ -17,5 +17,7 @@
     "noUnusedParameters": true,
     "types": []
   },
-  "include": ["./**/*.ts", "../worker-configuration.d.ts"]
+  "include": ["./**/*.ts", "../worker-configuration.d.ts"],
+  // Tests run in Node, so they are checked with the page's settings instead.
+  "exclude": ["./**/*.test.ts"]
 }

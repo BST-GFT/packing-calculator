@@ -21,8 +21,12 @@
       "preview_database_id": "5f909a39-a7ff-4b49-9d81-d7e2e2f6d832"
     }
   ],
+  // At most 10 admin login attempts per minute from one connection.
+  "ratelimits": [{ "name": "LOGIN_LIMIT", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } }],
   // Previews of other branches (built by Cloudflare with `wrangler preview`) use
-  // their own database, so testing never touches the real propostas.
+  // their own database, so testing never touches the real propostas. The admin
+  // password (secret ADMIN_PASSWORD) is set separately for the live site and
+  // for previews.
   "previews": {
     "d1_databases": [
       {
@@ -30,7 +34,8 @@
         "database_name": "embalagem-preview",
         "database_id": "5f909a39-a7ff-4b49-9d81-d7e2e2f6d832"
       }
-    ]
+    ],
+    "ratelimits": [{ "name": "LOGIN_LIMIT", "namespace_id": "1002", "simple": { "limit": 10, "period": 60 } }]
   },
   "observability": { "enabled": true }
 }

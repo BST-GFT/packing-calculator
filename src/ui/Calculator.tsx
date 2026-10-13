@@ -1,8 +1,6 @@
 import { Fragment, useMemo, useState } from 'react'
 
-import { BOXES, BOX_PENALTY_LITERS, DEFAULT_LOSS_CM } from '../data/boxes.ts'
-import { FRAGILE_LOAD } from '../data/products.ts'
-import { SHIPPING_MODES, boxAllowed, type ShippingMode } from '../data/shipping.ts'
+import { boxAllowed, type ShippingMode } from '../data/shipping.ts'
 import {
   fitUnitInBox,
   fragileFactor,
@@ -18,6 +16,7 @@ import {
 import { saveProposal } from '../proposal/api.ts'
 import { readDraft, type Proposal, type ProposalInput, type ProposalResult } from '../proposal/format.ts'
 import { sameBoxes, summarize } from '../proposal/summary.ts'
+import { useSettings } from '../settings/context.tsx'
 import { Arrangement } from './Arrangement.tsx'
 import { Field, Segmented } from './controls.tsx'
 import { dims, kg, list, num, parseDecimal, pct, when } from './format.ts'
@@ -29,15 +28,15 @@ const MAX_QUANTITY = 5_000_000
 const MAX_SIDE_CM = 300
 
 /**
- * Shipping settings this device was last set to, used for each new proposta.
- * Only what someone changed is kept, so new defaults reach devices that never
- * changed them, and loading a proposta does not change them.
+ * Shipping choices this device was last set to, used for each new proposta.
+ * Only what someone changed is kept, and loading a proposta does not change
+ * them. The weight limit and the folga are not kept: each new proposta starts
+ * from the shared settings, so the admin's changes reach every device.
+ * (Older versions kept them too; those values are now ignored.)
  */
 interface Saved {
   modeId?: string
-  maxWeight?: string
   protection?: string
-  loss?: string
   off?: string[]
 }
 
@@ -123,6 +122,8 @@ interface Snapshot {
   number: string
   responsible: string
   savedAt: string
+  /** When the admin last corrected its number or responsible, if ever. */
+  correctedAt: string | null
   /** The input as JSON, for comparing. */
   input: string
   result: ProposalResult
@@ -133,6 +134,8 @@ type Saving = { state: 'idle' } | { state: 'saving' } | { state: 'refused'; prob
 
 /** The calculator, empty for a new proposta or filled in from a saved one. */
 export function Calculator({ loaded }: { loaded: Proposal | null }) {
+  const { settings, status: settingsStatus } = useSettings()
+  const { boxes, modes } = settings
   const [saved] = useState(loadSaved)
   const start = loaded?.input
 
@@ -145,17 +148,17 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
 
   const [modeId, setModeId] = useState(() => {
     const id = start ? start.shipping.modeId : saved.modeId
-    return SHIPPING_MODES.some((m) => m.id === id) ? id! : SHIPPING_MODES[0].id
+    return modes.some((m) => m.id === id) ? id! : modes[0].id
   })
-  const mode = SHIPPING_MODES.find((m) => m.id === modeId) ?? SHIPPING_MODES[0]
+  const mode = modes.find((m) => m.id === modeId) ?? modes[0]
   const [maxWeight, setMaxWeight] = useState(() =>
-    start ? start.shipping.maxWeight : text(saved.maxWeight, num(mode.maxGrossKg)),
+    start ? start.shipping.maxWeight : num(mode.maxGrossKg),
   )
   const [protection, setProtection] = useState(() =>
     start ? start.shipping.protection : text(saved.protection, '0'),
   )
   const [loss, setLoss] = useState(() =>
-    start ? start.shipping.loss : text(saved.loss, num(DEFAULT_LOSS_CM)),
+    start ? start.shipping.loss : num(settings.lossCm),
   )
   const [off, setOff] = useState<string[]>(() =>
     start ? start.shipping.off : Array.isArray(saved.off) ? saved.off : [],
@@ -163,7 +166,7 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
 
   // Fewest boxes first: fewer, fuller boxes are usually what costs least to send.
   const [priority, setPriority] = useState<Priority>(
-    start?.priority ?? (BOXES.every((b) => b.costBRL !== undefined) ? 'cost' : 'boxes'),
+    start?.priority ?? (boxes.every((b) => b.costBRL !== undefined) ? 'cost' : 'boxes'),
   )
   const [open, setOpen] = useState<string | null>(null)
 
@@ -174,6 +177,7 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
           number: loaded.number,
           responsible: loaded.responsible,
           savedAt: loaded.savedAt,
+          correctedAt: loaded.correctedAt ?? null,
           input: JSON.stringify(loaded.input),
           result: loaded.result,
           loaded: true,
@@ -201,8 +205,8 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
   const result = useMemo(() => {
     if (!settingsOk) return null
     const readings = products.map((p, i) => read(p, i, weightUnit))
-    const rules = { maxGrossKg: maxKg, protectionKg, lossCm, fragileLoad: FRAGILE_LOAD }
-    const inUse = BOXES.filter((b) => !off.includes(b.id) && boxAllowed(b, mode))
+    const rules = { maxGrossKg: maxKg, protectionKg, lossCm, fragileLoad: settings.fragileLoad }
+    const inUse = boxes.filter((b) => !off.includes(b.id) && boxAllowed(b, mode))
     const fits = readings.map((r) =>
       r.ready
         ? inUse.map((b) =>
@@ -222,14 +226,14 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
       }))
       for (const p of ['cost', 'boxes', 'volume', 'balanced'] as const) {
         const shipment = planShipment(order, fits as BoxFit[][], p, rules, {
-          boxPenaltyLiters: BOX_PENALTY_LITERS,
+          boxPenaltyLiters: settings.boxPenaltyLiters,
         })
         // Asking for cost without costs falls back, so keep only what was asked for.
         if (shipment && shipment.priority === p) shipments.set(p, shipment)
       }
     }
     return { fits, shipments, complete }
-  }, [settingsOk, products, weightUnit, maxKg, protectionKg, lossCm, off, mode])
+  }, [settingsOk, products, weightUnit, maxKg, protectionKg, lossCm, off, mode, boxes, settings])
 
   const active: Priority | null = result
     ? result.shipments.has(priority)
@@ -249,7 +253,7 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
     }
   }
 
-  const tooBig = BOXES.filter((b) => !off.includes(b.id) && !boxAllowed(b, mode))
+  const tooBig = boxes.filter((b) => !off.includes(b.id) && !boxAllowed(b, mode))
   const anyReady = result !== null && result.fits.some((f) => f !== null)
   const firstTable = result ? result.fits.findIndex((f) => f !== null && f.some((x) => x.capacity > 0)) : -1
   const names = readings.map((r) => r.name)
@@ -267,7 +271,7 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
   const chooseMode = (next: ShippingMode) => {
     setModeId(next.id)
     setMaxWeight(num(next.maxGrossKg))
-    remember({ modeId: next.id, maxWeight: num(next.maxGrossKg) })
+    remember({ modeId: next.id })
   }
   const toggleBox = (id: string) => {
     const next = off.includes(id) ? off.filter((x) => x !== id) : [...off, id]
@@ -295,6 +299,7 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
         number: number.trim(),
         responsible: responsible.trim(),
         savedAt: done.savedAt,
+        correctedAt: null,
         input: JSON.stringify(input),
         result: checked.draft.result,
         loaded: false,
@@ -312,7 +317,10 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
       {record && !changed && (
         <p className="save-status">
           {record.loaded ? 'Proposta carregada' : 'Proposta salva'}: <strong>{record.number}</strong>,
-          por {record.responsible}, em {when(record.savedAt)}.
+          por {record.responsible}, em {when(record.savedAt)}
+          {record.correctedAt &&
+            `. Número ou responsável corrigido pelo administrador em ${when(record.correctedAt)}`}
+          .
         </p>
       )}
       {record && !changed && record.loaded && current && !sameBoxes(record.result, current) && (
@@ -346,6 +354,15 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
 
   return (
     <main className="page">
+      {settingsStatus === 'fallback' && (
+        <ul className="problems" role="alert">
+          <li>
+            Não foi possível carregar as configurações do servidor; o cálculo usa os valores de
+            fábrica. Confira a internet e recarregue a página.
+          </li>
+        </ul>
+      )}
+
       <fieldset className="proposal">
         <legend>Proposta</legend>
         <div className="proposal-fields">
@@ -397,19 +414,16 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
           </summary>
           <Segmented
             label="Modalidade"
-            options={SHIPPING_MODES}
+            options={modes}
             value={modeId}
-            onChange={(id) => chooseMode(SHIPPING_MODES.find((m) => m.id === id) ?? mode)}
+            onChange={(id) => chooseMode(modes.find((m) => m.id === id) ?? mode)}
           />
           <div className="row-2">
             <Field
               label="Limite por caixa"
               suffix="kg"
               value={maxWeight}
-              onChange={(v) => {
-                setMaxWeight(v)
-                remember({ maxWeight: v })
-              }}
+              onChange={setMaxWeight}
             />
             <Field
               label="Proteção por caixa"
@@ -425,15 +439,12 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
             label="Folga interna"
             suffix="cm"
             value={loss}
-            onChange={(v) => {
-              setLoss(v)
-              remember({ loss: v })
-            }}
+            onChange={setLoss}
             hint="Descontada de cada medida interna da caixa, para proteção ou para o encaixe não ficar justo."
           />
           <div className="boxes">
             <span className="field-label">Caixas disponíveis</span>
-            {BOXES.map((b) => (
+            {boxes.map((b) => (
               <label className="check" key={b.id}>
                 <input type="checkbox" checked={!off.includes(b.id)} onChange={() => toggleBox(b.id)} />
                 <span>
@@ -464,7 +475,7 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
             onPick={setPriority}
             names={names}
             allowances={readings.map((r) =>
-              r.fragile ? fragileFactor(r.maxLayers, FRAGILE_LOAD) : null,
+              r.fragile ? fragileFactor(r.maxLayers, settings.fragileLoad) : null,
             )}
             lossMm={toMm(lossCm)}
             hasWeight={readings.some((r) => r.unit.weightKg > 0)}
@@ -502,7 +513,7 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
               {i === firstTable && off.length > 0 && (
                 <p className="hint">
                   Fora do cálculo, desmarcadas em Envio:{' '}
-                  {list(BOXES.filter((b) => off.includes(b.id)).map((b) => b.name))}.
+                  {list(boxes.filter((b) => off.includes(b.id)).map((b) => b.name))}.
                 </p>
               )}
               {i === firstTable && tooBig.length > 0 && (

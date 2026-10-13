@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test \"src/**/*.test.ts\"",
+    "test": "node --test \"src/**/*.test.ts\" \"worker/**/*.test.ts\"",
     "typecheck": "wrangler types && tsc --noEmit && tsc --noEmit -p worker",
     "db:local": "wrangler d1 migrations apply embalagem --local",
     "db:remote": "wrangler d1 migrations apply embalagem --remote && wrangler d1 migrations apply embalagem --remote --preview"

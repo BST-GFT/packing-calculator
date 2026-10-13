@@ -1,0 +1,3 @@
+# Copy to .dev.vars (never committed) for `npm run dev`: the admin password
+# on your computer only. The real one is a secret in Cloudflare.
+ADMIN_PASSWORD=choose-a-test-password

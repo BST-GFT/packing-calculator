@@ -202,6 +202,169 @@ input {
   box-shadow: 0 0 0 3px var(--orange);
 }
 
+.start-admin {
+  justify-self: center;
+  margin-top: 8px;
+  padding: 6px 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+/* Admin area */
+
+.admin {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 14px;
+  width: 100%;
+  max-width: 980px;
+  padding: 18px;
+  border-radius: 6px;
+  background: var(--paper);
+}
+
+.admin h2 {
+  color: var(--purple);
+  font: 600 26px/1.1 var(--display);
+}
+
+.admin h3 {
+  margin-top: 10px;
+  color: var(--purple);
+  font: 600 22px/1.1 var(--display);
+}
+
+.admin-login {
+  max-width: 420px;
+}
+
+.admin-login .save-button {
+  justify-self: start;
+}
+
+.admin-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-tabs {
+  max-width: 380px;
+}
+
+.admin-section {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+}
+
+.link.danger {
+  color: #b3261e;
+}
+
+.link:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.admin-proposals li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 14px;
+  border-top: 1px solid var(--rule);
+}
+
+.admin-proposals a {
+  border-top: 0;
+}
+
+.admin-proposals .admin-editing {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 4px;
+}
+
+@media (max-width: 520px) {
+  .admin-proposals li {
+    grid-template-columns: minmax(0, 1fr);
+    padding-bottom: 8px;
+  }
+
+  .admin-proposals .admin-actions {
+    padding: 0 4px;
+  }
+}
+
+/* Boxes: three to a row on a phone, one row each on a wider screen */
+
+.admin-boxes {
+  display: grid;
+}
+
+.admin-box {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.admin-box .field:first-child {
+  grid-column: span 2;
+}
+
+.admin-box .remove {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  margin-bottom: 3px;
+}
+
+@media (min-width: 900px) {
+  .admin-box {
+    grid-template-columns: minmax(80px, 1.2fr) repeat(3, minmax(60px, 1fr)) repeat(3, minmax(80px, 1fr)) 40px;
+  }
+
+  .admin-box .field:first-child {
+    grid-column: auto;
+  }
+
+  .admin-box .remove {
+    grid-column: auto;
+    grid-row: auto;
+  }
+}
+
+.admin-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  align-items: start;
+  gap: 10px;
+}
+
+.admin-row-wide {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.admin .admin-mode {
+  padding: 14px 0 0;
+  border-top: 1px solid var(--rule);
+  border-radius: 0;
+}
+
+.admin-mode legend {
+  font-size: 19px;
+}
+
 /* The proposta's number and responsible, above the products */
 
 .proposal {

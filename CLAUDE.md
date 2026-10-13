@@ -28,6 +28,7 @@ sales on a PC to estimate freight. The interface is in Brazilian Portuguese.
 npm install       # creates node_modules
 npm run db:local  # once: creates the local test database in .wrangler/
 npm run dev       # page and server at http://localhost:5173, local database
+                  # (admin password for local tests: copy .dev.vars.example to .dev.vars)
 npm test          # engine and proposta tests (Node's built-in runner)
 npm run typecheck # generates Cloudflare's types, checks the page and the server
 npm run build     # page in dist/client/, server in dist/embalagem/
@@ -55,8 +56,12 @@ npm run db:remote # applies new migrations/ to the real and preview databases (n
 - Every push to `develop` runs `.github/workflows/ci.yml`: install, tests,
   type-check, build.
 - `package-lock.json` is committed, so the workflows install with `npm ci`.
-- Secrets (the admin password, planned) live in Cloudflare's settings for the
-  Worker, never in the repo, which is public.
+- Secrets live in Cloudflare's settings for the Worker, never in the repo,
+  which is public. The only one is `ADMIN_PASSWORD`, set by Francesco in the
+  dashboard (Worker embalagem → Settings → Variables and Secrets); the
+  preview has its own (`npx wrangler preview secret put ADMIN_PASSWORD --name
+  develop`). Locally it comes from `.dev.vars`, which is gitignored. Never
+  ask for, print or commit the real one.
 
 ## Layout
 
@@ -66,13 +71,16 @@ npm run db:remote # applies new migrations/ to the real and preview databases (n
 | `src/engine/shipment.ts` | Plans an order of one or more products; mixes leftovers |
 | `src/engine/mixed.ts` | Packs several products into one box, unit by unit |
 | `src/engine/support.ts` | The rule that no unit hangs over empty space |
-| `src/data/boxes.ts` | Stock boxes, internal loss, box penalty |
-| `src/data/shipping.ts` | Weight and size limits and cubed-weight rule per shipping mode |
-| `src/data/products.ts` | How much weight a fragile product can carry (`FRAGILE_LOAD`) |
-| `src/App.tsx` | Picks the screen from the address: start, new proposta, list, saved proposta |
-| `src/ui/` | The page; `Calculator.tsx` the calculator, `Products.tsx` the product list, `ShipmentLabel.tsx` the plan, `ProposalList.tsx` the saved propostas |
+| `src/data/boxes.ts` | Factory settings: stock boxes, internal loss, box penalty |
+| `src/data/shipping.ts` | Factory settings: weight and size limits and cubed-weight rule per shipping mode |
+| `src/data/products.ts` | Factory settings: how much weight a fragile product can carry (`FRAGILE_LOAD`) |
+| `src/settings/` | The settings in use: their format and checks (`readSettings`, shared with the server), and `SettingsProvider`, which loads them once for every screen |
+| `src/App.tsx` | Picks the screen from the address: start, new proposta, list, saved proposta, admin |
+| `src/ui/` | The page; `Calculator.tsx` the calculator, `Products.tsx` the product list, `ShipmentLabel.tsx` the plan, `ProposalList.tsx` the saved propostas, `Admin.tsx` the admin area |
 | `src/proposal/` | What a saved proposta keeps and its checks (shared with the server), the plan summary, calls to the server |
-| `worker/index.ts` | The server: `/api/proposals` on Cloudflare, with the D1 database |
+| `src/admin/api.ts` | The admin area's calls to the server, and keeping the login for the browser tab |
+| `worker/index.ts` | The server on Cloudflare, with the D1 database: `/api/proposals`, `/api/settings`, `/api/admin/...` |
+| `worker/admin.ts` | Checking the admin password and the login token (tested in `worker/admin.test.ts`) |
 | `migrations/` | The database's tables, applied in order (`npm run db:local`, `db:remote`) |
 | `wrangler.jsonc` | Cloudflare settings: Worker name, database, which addresses reach the server |
 | `src/ui/Box3D.tsx` | The 3D view of a packed box (three.js), loaded on demand |
@@ -146,14 +154,42 @@ background it was drawn for.
   none of these are needed just to calculate. It keeps the inputs as typed,
   the Envio settings used and a summary of the result, so a loaded proposta
   shows what was proposed and warns when today's calculation differs.
-  Saved propostas never change: the server has no route to change or delete
-  one, and a database trigger refuses updates. A loaded proposta can be saved
-  again only under a new number. Loading a proposta does not change the
-  device's own Envio settings, which are now remembered only when someone
-  changes them, so new defaults reach devices that never did.
+  What was proposed never changes: a database trigger refuses updates to
+  everything but the number and responsável, and only the admin can change
+  those. A loaded proposta can be saved again only under a new number.
+  Loading a proposta does not change the device's own Envio choices.
 - No login: anyone with the link can use the site, load and save propostas
-  (Francesco, 2026-10-13). An admin area protected by a password checked on
-  the server (a Cloudflare secret) is planned for managing saved propostas.
+  (Francesco, 2026-10-13).
+- Admin area (`#admin`, linked at the bottom of the start screen; 2026-10-13).
+  One shared password, `ADMIN_PASSWORD`, checked on the server. Logging in
+  gives a token signed with the password (HMAC), good for 12 hours and kept
+  for the browser tab only; changing the password logs everyone out. Ten
+  login tries a minute per connection (Cloudflare rate limiting,
+  `LOGIN_LIMIT`). The admin can:
+  - correct a proposta's number or responsável (the proposta then says when
+    it was corrected; `corrected_at`);
+  - delete a proposta for good, chosen by Francesco over hiding it: it is
+    gone at once and its number is free again. Ids are never reused
+    (AUTOINCREMENT), so an old link to a deleted proposta says it was not
+    found instead of opening another one;
+  - change the shared settings (below).
+  Not built: exporting the list (offered, not chosen).
+- Shared settings (2026-10-13), replacing the "no settings page" decision of
+  2026-10-09. The boxes in stock, each shipping mode's weight limit, size
+  limits and cubed-weight factor, the default folga, `FRAGILE_LOAD` and
+  `BOX_PENALTY_LITERS` are set by the admin and apply to everyone. Each save
+  is a new row in the `settings` table (newest applies, older ones are
+  history). `src/data/` holds the factory values, used until the first
+  save, when the saved ones fail `readSettings`, and when the server cannot
+  be reached (the page then says so). The page loads the settings once and
+  the calculator waits for them. The shipping modes themselves (Transportadora
+  and Correios) and how their cubed weight is counted (per shipment or per
+  box) are fixed in code; only their numbers are settings. Box ids are the
+  name in capitals, so a box keeps its id when only its size changes.
+- Each device remembers its own shipping mode, protection and boxes switched
+  off, and only once someone changes them. The weight limit and folga are not
+  remembered (2026-10-13): each new proposta starts from the shared settings,
+  so the admin's changes reach every device.
 - The page and its server run on Cloudflare Workers with a D1 database, from
   a public repo. No third-party login or tracking.
 - No third-party packing library. pyshipping is unmaintained and its packing
@@ -171,11 +207,6 @@ background it was drawn for.
   then not used, even where their columns would be low enough (2026-10-09).
   The table and the arrangement say so when the limit cost units
   (`limitedBy: 'layers'`).
-- No settings page for now (2026-10-09). Tuning values (box sizes, weight
-  limits, cubed-weight rules, `FRAGILE_LOAD`, `BOX_PENALTY_LITERS`) stay in
-  `src/data/`. A settings page may come back if more values need adjusting;
-  with the D1 database and the planned admin password it could keep shared
-  settings that only the admin changes.
 - Each box's arrangement starts with a free-spinning 3D view (three.js),
   chosen over a dependency-free fixed drawing (2026-10-08). It shows only the
   units that go in under the weight limit, and a slider builds it layer by
@@ -194,15 +225,18 @@ boxes on and off, printing the plan, and the keep-upright option.
 Adopted later: its 3D step-by-step view (as the 3D view with a layer slider),
 several products in one order, and "Outros produtos por cima", later replaced
 by "Frágil" with a weight allowance (see above). Left out so
-far: a "Fixa" position that keeps C × L × A exactly as typed, and editing box
-sizes on the page. Its packing method (one orientation per box, plain grid,
+far: a "Fixa" position that keeps C × L × A exactly as typed. Its editing of
+box sizes on the page became the admin's shared settings rather than a
+per-user choice. Its packing method (one orientation per box, plain grid,
 largest box first) fits fewer units than this engine and was not reused. Its
 newer version once left a unit unsupported on top; this engine's support rule
 rules that out.
 
 ## Open questions
 
-Marked `TO CONFIRM` or `TO CALIBRATE` in `src/data/`. Ask before assuming:
+Marked `TO CONFIRM` or `TO CALIBRATE` in `src/data/`. Ask before assuming. Once
+known, the admin sets them in the admin area; `src/data/` changes only if the
+factory values should change too.
 
 1. Which cubed-weight factor do the carriers in use apply? 300 kg/m³ is set;
    parcel carriers often use 167.
@@ -236,9 +270,13 @@ Marked `TO CONFIRM` or `TO CALIBRATE` in `src/data/`. Ask before assuming:
   note points to the layer drawings instead.
 - Anyone with the link can save propostas, so nothing stops a stranger who
   gets it from filling the list; the server only checks the shape and size of
-  what is saved. The list shows the 50 most recent; older ones are found by
-  searching. The server's own code (`worker/`) has no automated tests yet;
-  the proposta checks it uses (`src/proposal/`) do.
+  what is saved; the admin can delete what should not be there. The list
+  shows the 50 most recent; older ones are found by searching. The server's
+  routes have no automated tests; the checks they use (`src/proposal/`,
+  `src/settings/`, `worker/admin.ts`) do.
+- A proposta saved with boxes that the admin later removes or resizes still
+  shows what it proposed; recalculated today it uses today's boxes, and the
+  page says the result differs.
 - The page has been checked with Barlow loaded in a desktop browser, including
   phone-width emulation (375 and 320 px), but not on a real phone. The 3D
   view's touch handling in particular has only been tested with a mouse.
