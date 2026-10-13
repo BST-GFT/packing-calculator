@@ -71,6 +71,8 @@ export interface Proposal extends ProposalDraft {
   id: number
   /** When it was saved, as an ISO date in UTC. */
   savedAt: string
+  /** When the admin last corrected its number or responsible, if ever. */
+  correctedAt?: string | null
 }
 
 /** One row of the list of saved propostas. */

@@ -9,7 +9,15 @@ many units go in each, how to arrange them, and what the shipment weighs.
 Live at **https://embalagem.bestgift.workers.dev**. The calculation runs in
 the browser. A small server on Cloudflare keeps the saved propostas (an order
 with its products and the plan) in a database; saved propostas never change.
-Each device also remembers its own shipping settings.
+Each device also remembers its own shipping mode, protection and boxes
+switched off.
+
+**Administração** (link at the bottom of the start screen) is behind the admin
+password. There the admin can correct a saved proposta's number or
+responsável, delete a proposta for good, and change the settings everyone
+uses: the boxes in stock, the weight and size limits and cubed-weight rules,
+the default folga, how much weight a fragile product carries, and how much one
+extra box is worth.
 
 ## Run it on your computer
 
@@ -23,18 +31,34 @@ npm test          # runs the tests
 npm run build     # writes the publishable page and server to dist/
 ```
 
+To try the admin area on your computer, copy `.dev.vars.example` to
+`.dev.vars` and pick a test password there. `.dev.vars` is never committed.
+
 ## Where things are
 
 | Path | What it holds |
 | --- | --- |
-| `src/data/boxes.ts` | The boxes in stock (internal measurements), and one number to calibrate |
-| `src/data/shipping.ts` | Limits and cubed-weight rules per shipping mode |
+| `src/data/` | Factory settings: boxes in stock (internal measurements), limits and cubed-weight rules per shipping mode, tuning values |
+| `src/settings/` | The settings in use: their checks and loading them from the server |
 | `src/engine/` | The calculation. No interface code, fully tested |
-| `src/App.tsx`, `src/ui/` | The page |
-| `src/proposal/`, `worker/`, `migrations/` | Saved propostas: their format, the server, the database tables |
+| `src/App.tsx`, `src/ui/` | The page; `src/ui/Admin.tsx` the admin area |
+| `src/proposal/`, `worker/`, `migrations/` | Saved propostas and settings: their format, the server, the database tables |
 | `.github/workflows/` | Automatic checks; the old GitHub Pages address forwards to the new one |
 
-To change a box, edit `src/data/boxes.ts` and push.
+Boxes, limits and the other settings are changed in Administração and apply
+to everyone at once; each save keeps the previous version in the database.
+`src/data/` holds the factory values, used until the admin first saves (and
+offered by "Voltar aos valores de fábrica").
+
+## The admin password
+
+It is a secret in Cloudflare, never in this repo (which is public). To set or
+change it, in the Cloudflare dashboard: Workers & Pages → **embalagem** →
+Settings → Variables and Secrets → Add → type **Secret**, name
+`ADMIN_PASSWORD`. Changing it logs out everyone who is logged in. The
+preview at `develop-embalagem…` has its own, set with
+`npx wrangler preview secret put ADMIN_PASSWORD --name develop`. Ten wrong
+tries in a minute from one connection are refused for a minute.
 
 ## How it calculates
 
@@ -80,7 +104,8 @@ theoretical maximum.
 
 ## To confirm with logistics
 
-These are marked `TO CONFIRM` or `TO CALIBRATE` in `src/data/`:
+These are marked `TO CONFIRM` or `TO CALIBRATE` in `src/data/`. Once known,
+set them in Administração:
 
 - The cubed-weight factor the carriers in use apply (300 kg/m³ for now).
 - For Correios, whether cubed weight is ignored up to 5 kg or 10 kg.
