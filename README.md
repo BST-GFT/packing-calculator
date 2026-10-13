@@ -6,18 +6,21 @@ Internal Best Gift tool. Logistics or sales type in the size and weight of one
 unit and the order quantity; the page says which shipping boxes to use, how
 many units go in each, how to arrange them, and what the shipment weighs.
 
-Everything runs in the browser. There is no server and nothing is stored
-except the shipping settings, which are remembered on each device.
+Live at **https://embalagem.bestgift.workers.dev**. The calculation runs in
+the browser. A small server on Cloudflare keeps the saved propostas (an order
+with its products and the plan) in a database; saved propostas never change.
+Each device also remembers its own shipping settings.
 
 ## Run it on your computer
 
 Needs [Node.js](https://nodejs.org) 22.18 or newer.
 
 ```
-npm install      # once, and again whenever package.json changes
-npm run dev      # opens the page at http://localhost:5173, reloads as you edit
-npm test         # runs the calculation tests
-npm run build    # writes the publishable page to dist/
+npm install       # once, and again whenever package.json changes
+npm run db:local  # once: creates a local test database for saving propostas
+npm run dev       # opens the page at http://localhost:5173, reloads as you edit
+npm test          # runs the tests
+npm run build     # writes the publishable page and server to dist/
 ```
 
 ## Where things are
@@ -28,7 +31,8 @@ npm run build    # writes the publishable page to dist/
 | `src/data/shipping.ts` | Limits and cubed-weight rules per shipping mode |
 | `src/engine/` | The calculation. No interface code, fully tested |
 | `src/App.tsx`, `src/ui/` | The page |
-| `.github/workflows/` | Automatic checks and publishing |
+| `src/proposal/`, `worker/`, `migrations/` | Saved propostas: their format, the server, the database tables |
+| `.github/workflows/` | Automatic checks; the old GitHub Pages address forwards to the new one |
 
 To change a box, edit `src/data/boxes.ts` and push.
 
@@ -65,12 +69,13 @@ theoretical maximum.
 
 ## Branches and publishing
 
-- Work on `develop`. Every push there runs the tests (`ci.yml`).
+- Work on `develop`. Every push there runs the tests (`ci.yml`), and Cloudflare
+  builds a preview version.
 - Open a pull request from `develop` into `main` when a version is ready.
-- Merging into `main` publishes the page (`deploy.yml`).
-
-One-time setup before the first publish: in the repository on GitHub, go to
-Settings > Pages and set Source to "GitHub Actions".
+- Merging into `main` publishes: Cloudflare builds and deploys it on its own.
+- A change to the database tables goes in a new file in `migrations/`, applied
+  to the real database with `npm run db:remote` before the code that needs it
+  is published.
 
 ## To confirm with logistics
 

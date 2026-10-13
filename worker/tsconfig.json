@@ -1,0 +1,21 @@
+{
+  // The server runs on Cloudflare, not in a browser: Cloudflare's runtime types
+  // (generated into worker-configuration.d.ts by `wrangler types`), no DOM.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": []
+  },
+  "include": ["./**/*.ts", "../worker-configuration.d.ts"]
+}

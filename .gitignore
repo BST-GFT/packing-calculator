@@ -2,6 +2,7 @@ node_modules/
 dist/
 *.local
 .DS_Store
-# Cloudflare's local cache and local test secrets
+# Cloudflare's local cache and local test secrets, and types npm run typecheck generates
 .wrangler/
 .dev.vars*
+worker-configuration.d.ts

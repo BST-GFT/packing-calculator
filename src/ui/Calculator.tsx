@@ -1,9 +1,8 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 
-import logoUrl from './assets/logo.jpg'
-import { BOXES, BOX_PENALTY_LITERS, DEFAULT_LOSS_CM } from './data/boxes.ts'
-import { FRAGILE_LOAD } from './data/products.ts'
-import { SHIPPING_MODES, boxAllowed, type ShippingMode } from './data/shipping.ts'
+import { BOXES, BOX_PENALTY_LITERS, DEFAULT_LOSS_CM } from '../data/boxes.ts'
+import { FRAGILE_LOAD } from '../data/products.ts'
+import { SHIPPING_MODES, boxAllowed, type ShippingMode } from '../data/shipping.ts'
 import {
   fitUnitInBox,
   fragileFactor,
@@ -15,18 +14,25 @@ import {
   type Product,
   type Shipment,
   type Unit,
-} from './engine/index.ts'
-import { Arrangement } from './ui/Arrangement.tsx'
-import { Field, Segmented } from './ui/controls.tsx'
-import { dims, kg, list, num, parseDecimal, pct } from './ui/format.ts'
-import { blankProduct, productName, Products, type ProductInput } from './ui/Products.tsx'
-import { ShipmentLabel, shipmentKey } from './ui/ShipmentLabel.tsx'
+} from '../engine/index.ts'
+import { saveProposal } from '../proposal/api.ts'
+import { readDraft, type Proposal, type ProposalInput, type ProposalResult } from '../proposal/format.ts'
+import { sameBoxes, summarize } from '../proposal/summary.ts'
+import { Arrangement } from './Arrangement.tsx'
+import { Field, Segmented } from './controls.tsx'
+import { dims, kg, list, num, parseDecimal, pct, when } from './format.ts'
+import { blankProduct, productName, Products, type ProductInput } from './Products.tsx'
+import { ShipmentLabel, shipmentKey } from './ShipmentLabel.tsx'
 
 const STORAGE_KEY = 'packing-calculator:settings'
 const MAX_QUANTITY = 5_000_000
 const MAX_SIDE_CM = 300
 
-/** Shipping settings are remembered on this device; the products are typed in each time. */
+/**
+ * Shipping settings this device was last set to, used for each new proposta.
+ * Only what someone changed is kept, so new defaults reach devices that never
+ * changed them, and loading a proposta does not change them.
+ */
 interface Saved {
   modeId?: string
   maxWeight?: string
@@ -41,6 +47,14 @@ function loadSaved(): Saved {
     return value && typeof value === 'object' ? (value as Saved) : {}
   } catch {
     return {}
+  }
+}
+
+function remember(change: Saved) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...loadSaved(), ...change }))
+  } catch {
+    // Private windows may refuse storage; the page works the same without it.
   }
 }
 
@@ -103,35 +117,70 @@ function read(p: ProductInput, index: number, weightUnit: 'g' | 'kg'): Reading {
   }
 }
 
-export function App() {
+/** The proposta as last saved or loaded, to tell whether the page still matches it. */
+interface Snapshot {
+  id: number
+  number: string
+  responsible: string
+  savedAt: string
+  /** The input as JSON, for comparing. */
+  input: string
+  result: ProposalResult
+  loaded: boolean
+}
+
+type Saving = { state: 'idle' } | { state: 'saving' } | { state: 'refused'; problems: string[] }
+
+/** The calculator, empty for a new proposta or filled in from a saved one. */
+export function Calculator({ loaded }: { loaded: Proposal | null }) {
   const [saved] = useState(loadSaved)
+  const start = loaded?.input
 
-  const [products, setProducts] = useState<ProductInput[]>(() => [blankProduct(1)])
-  const [weightUnit, setWeightUnit] = useState<'g' | 'kg'>('g')
-
-  const [modeId, setModeId] = useState(() =>
-    SHIPPING_MODES.some((m) => m.id === saved.modeId) ? saved.modeId! : SHIPPING_MODES[0].id,
+  const [number, setNumber] = useState(loaded?.number ?? '')
+  const [responsible, setResponsible] = useState(loaded?.responsible ?? '')
+  const [products, setProducts] = useState<ProductInput[]>(() =>
+    start ? start.products.map((p, i) => ({ id: i + 1, ...p })) : [blankProduct(1)],
   )
+  const [weightUnit, setWeightUnit] = useState<'g' | 'kg'>(start?.weightUnit ?? 'g')
+
+  const [modeId, setModeId] = useState(() => {
+    const id = start ? start.shipping.modeId : saved.modeId
+    return SHIPPING_MODES.some((m) => m.id === id) ? id! : SHIPPING_MODES[0].id
+  })
   const mode = SHIPPING_MODES.find((m) => m.id === modeId) ?? SHIPPING_MODES[0]
-  const [maxWeight, setMaxWeight] = useState(() => text(saved.maxWeight, num(mode.maxGrossKg)))
-  const [protection, setProtection] = useState(() => text(saved.protection, '0'))
-  const [loss, setLoss] = useState(() => text(saved.loss, num(DEFAULT_LOSS_CM)))
-  const [off, setOff] = useState<string[]>(() => (Array.isArray(saved.off) ? saved.off : []))
+  const [maxWeight, setMaxWeight] = useState(() =>
+    start ? start.shipping.maxWeight : text(saved.maxWeight, num(mode.maxGrossKg)),
+  )
+  const [protection, setProtection] = useState(() =>
+    start ? start.shipping.protection : text(saved.protection, '0'),
+  )
+  const [loss, setLoss] = useState(() =>
+    start ? start.shipping.loss : text(saved.loss, num(DEFAULT_LOSS_CM)),
+  )
+  const [off, setOff] = useState<string[]>(() =>
+    start ? start.shipping.off : Array.isArray(saved.off) ? saved.off : [],
+  )
 
   // Fewest boxes first: fewer, fuller boxes are usually what costs least to send.
   const [priority, setPriority] = useState<Priority>(
-    BOXES.every((b) => b.costBRL !== undefined) ? 'cost' : 'boxes',
+    start?.priority ?? (BOXES.every((b) => b.costBRL !== undefined) ? 'cost' : 'boxes'),
   )
   const [open, setOpen] = useState<string | null>(null)
 
-  useEffect(() => {
-    try {
-      const settings: Saved = { modeId, maxWeight, protection, loss, off }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
-    } catch {
-      // Private windows may refuse storage; the page works the same without it.
-    }
-  }, [modeId, maxWeight, protection, loss, off])
+  const [record, setRecord] = useState<Snapshot | null>(() =>
+    loaded
+      ? {
+          id: loaded.id,
+          number: loaded.number,
+          responsible: loaded.responsible,
+          savedAt: loaded.savedAt,
+          input: JSON.stringify(loaded.input),
+          result: loaded.result,
+          loaded: true,
+        }
+      : null,
+  )
+  const [saving, setSaving] = useState<Saving>({ state: 'idle' })
 
   const maxKg = parseDecimal(maxWeight)
   const protectionKg = parseDecimal(protection)
@@ -203,215 +252,347 @@ export function App() {
   const tooBig = BOXES.filter((b) => !off.includes(b.id) && !boxAllowed(b, mode))
   const anyReady = result !== null && result.fits.some((f) => f !== null)
   const firstTable = result ? result.fits.findIndex((f) => f !== null && f.some((x) => x.capacity > 0)) : -1
+  const names = readings.map((r) => r.name)
+
+  // What a proposta would keep of the page right now.
+  const input: ProposalInput = {
+    weightUnit,
+    products: products.map(({ id: _, ...p }) => p),
+    shipping: { modeId, maxWeight, protection, loss, off },
+    priority: active ?? priority,
+  }
+  const current = shipment ? summarize(shipment, names, mode) : null
+  const changed = record !== null && JSON.stringify(input) !== record.input
 
   const chooseMode = (next: ShippingMode) => {
     setModeId(next.id)
     setMaxWeight(num(next.maxGrossKg))
+    remember({ modeId: next.id, maxWeight: num(next.maxGrossKg) })
   }
-  const toggleBox = (id: string) =>
-    setOff((current) => (current.includes(id) ? current.filter((x) => x !== id) : [...current, id]))
+  const toggleBox = (id: string) => {
+    const next = off.includes(id) ? off.filter((x) => x !== id) : [...off, id]
+    setOff(next)
+    remember({ off: next })
+  }
+
+  const save = async () => {
+    const draft = {
+      number,
+      responsible,
+      input,
+      result: current ?? { ...EMPTY_RESULT, priority: input.priority, mode: mode.label },
+    }
+    const checked = readDraft(draft)
+    if ('problems' in checked) {
+      setSaving({ state: 'refused', problems: checked.problems })
+      return
+    }
+    setSaving({ state: 'saving' })
+    try {
+      const done = await saveProposal(checked.draft)
+      setRecord({
+        id: done.id,
+        number: number.trim(),
+        responsible: responsible.trim(),
+        savedAt: done.savedAt,
+        input: JSON.stringify(input),
+        result: checked.draft.result,
+        loaded: false,
+      })
+      setSaving({ state: 'idle' })
+      // The address now points at the saved proposta, without reloading the page.
+      history.replaceState(null, '', `#proposta/${done.id}`)
+    } catch (error) {
+      setSaving({ state: 'refused', problems: [(error as Error).message] })
+    }
+  }
+
+  const savePanel = (
+    <section className="save" aria-live="polite">
+      {record && !changed && (
+        <p className="save-status">
+          {record.loaded ? 'Proposta carregada' : 'Proposta salva'}: <strong>{record.number}</strong>,
+          por {record.responsible}, em {when(record.savedAt)}.
+        </p>
+      )}
+      {record && !changed && record.loaded && current && !sameBoxes(record.result, current) && (
+        <p className="note note-limit">
+          O cálculo de hoje dá um resultado diferente do salvo. Salvo: {record.result.headline}. Hoje:{' '}
+          {current.headline}. Caixas, regras ou o cálculo mudaram desde então.
+        </p>
+      )}
+      {record && changed && (
+        <p className="save-status">
+          Alterada desde a proposta {record.number}. Para salvar, use um número de proposta novo.
+        </p>
+      )}
+      {saving.state === 'refused' && (
+        <ul className="problems" role="alert">
+          {saving.problems.map((p) => (
+            <li key={p}>{p}</li>
+          ))}
+        </ul>
+      )}
+      <button
+        type="button"
+        className="save-button"
+        onClick={save}
+        disabled={saving.state === 'saving'}
+      >
+        {saving.state === 'saving' ? 'Salvando…' : 'Salvar proposta'}
+      </button>
+    </section>
+  )
 
   return (
-    <>
-      <header className="top">
-        <img className="logo" src={logoUrl} alt="Best Shipping" width={638} height={144} />
-        <h1>Calculadora de embalagem</h1>
-      </header>
+    <main className="page">
+      <fieldset className="proposal">
+        <legend>Proposta</legend>
+        <div className="proposal-fields">
+          <Field
+            label="Nº da proposta"
+            inputMode="text"
+            value={number}
+            onChange={(v) => {
+              setNumber(v)
+              if (saving.state === 'refused') setSaving({ state: 'idle' })
+            }}
+          />
+          <Field
+            label="Responsável"
+            inputMode="text"
+            value={responsible}
+            onChange={(v) => {
+              setResponsible(v)
+              if (saving.state === 'refused') setSaving({ state: 'idle' })
+            }}
+          />
+        </div>
+        <p className="hint">Só são obrigatórios para salvar a proposta, junto com o nome de cada produto.</p>
+      </fieldset>
 
-      <main className="page">
-        <Products
-          products={products}
-          onChange={setProducts}
-          weightUnit={weightUnit}
-          onWeightUnit={setWeightUnit}
-        />
+      <Products
+        products={products}
+        onChange={setProducts}
+        weightUnit={weightUnit}
+        onWeightUnit={setWeightUnit}
+      />
 
-        {problems.length > 0 && (
-          <ul className="problems" role="alert">
-            {problems.map((p) => (
-              <li key={p}>{p}</li>
+      {problems.length > 0 && (
+        <ul className="problems" role="alert">
+          {problems.map((p) => (
+            <li key={p}>{p}</li>
+          ))}
+        </ul>
+      )}
+
+      <form className="inputs" onSubmit={(e) => e.preventDefault()}>
+        {/* Starts folded: the shipping settings are set once and rarely change. */}
+        <details className="panel">
+          <summary>
+            Envio
+            <small>
+              {mode.label}, até {maxWeight || '?'} kg por caixa
+            </small>
+          </summary>
+          <Segmented
+            label="Modalidade"
+            options={SHIPPING_MODES}
+            value={modeId}
+            onChange={(id) => chooseMode(SHIPPING_MODES.find((m) => m.id === id) ?? mode)}
+          />
+          <div className="row-2">
+            <Field
+              label="Limite por caixa"
+              suffix="kg"
+              value={maxWeight}
+              onChange={(v) => {
+                setMaxWeight(v)
+                remember({ maxWeight: v })
+              }}
+            />
+            <Field
+              label="Proteção por caixa"
+              suffix="kg"
+              value={protection}
+              onChange={(v) => {
+                setProtection(v)
+                remember({ protection: v })
+              }}
+            />
+          </div>
+          <Field
+            label="Folga interna"
+            suffix="cm"
+            value={loss}
+            onChange={(v) => {
+              setLoss(v)
+              remember({ loss: v })
+            }}
+            hint="Descontada de cada medida interna da caixa, para proteção ou para o encaixe não ficar justo."
+          />
+          <div className="boxes">
+            <span className="field-label">Caixas disponíveis</span>
+            {BOXES.map((b) => (
+              <label className="check" key={b.id}>
+                <input type="checkbox" checked={!off.includes(b.id)} onChange={() => toggleBox(b.id)} />
+                <span>
+                  {b.name}
+                  <small>{dims(b.dims)}</small>
+                </span>
+              </label>
             ))}
-          </ul>
+          </div>
+        </details>
+      </form>
+
+      <section className="results" aria-live="polite">
+        {!anyReady && (
+          <p className="empty">
+            {readings.some((r) => r.dimsTyped) && problems.length > 0
+              ? 'Corrija os campos indicados para ver o resultado.'
+              : 'Informe as medidas da unidade para ver quantas cabem em cada caixa.'}
+          </p>
         )}
 
-        <form className="inputs" onSubmit={(e) => e.preventDefault()}>
-          {/* Starts folded: the shipping settings are set once and rarely change. */}
-          <details className="panel">
-            <summary>
-              Envio
-              <small>
-                {mode.label}, até {maxWeight || '?'} kg por caixa
-              </small>
-            </summary>
-            <Segmented
-              label="Modalidade"
-              options={SHIPPING_MODES}
-              value={modeId}
-              onChange={(id) => chooseMode(SHIPPING_MODES.find((m) => m.id === id) ?? mode)}
-            />
-            <div className="row-2">
-              <Field label="Limite por caixa" suffix="kg" value={maxWeight} onChange={setMaxWeight} />
-              <Field label="Proteção por caixa" suffix="kg" value={protection} onChange={setProtection} />
-            </div>
-            <Field
-              label="Folga interna"
-              suffix="cm"
-              value={loss}
-              onChange={setLoss}
-              hint="Descontada de cada medida interna da caixa, para proteção ou para o encaixe não ficar justo."
-            />
-            <div className="boxes">
-              <span className="field-label">Caixas disponíveis</span>
-              {BOXES.map((b) => (
-                <label className="check" key={b.id}>
-                  <input
-                    type="checkbox"
-                    checked={!off.includes(b.id)}
-                    onChange={() => toggleBox(b.id)}
-                  />
-                  <span>
-                    {b.name}
-                    <small>{dims(b.dims)}</small>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </details>
-        </form>
+        {shipment && active && (
+          <ShipmentLabel
+            shipment={shipment}
+            priority={active}
+            mode={mode}
+            alternatives={alternatives}
+            onPick={setPriority}
+            names={names}
+            allowances={readings.map((r) =>
+              r.fragile ? fragileFactor(r.maxLayers, FRAGILE_LOAD) : null,
+            )}
+            lossMm={toMm(lossCm)}
+            hasWeight={readings.some((r) => r.unit.weightKg > 0)}
+            number={number.trim()}
+            responsible={responsible.trim()}
+          >
+            {savePanel}
+          </ShipmentLabel>
+        )}
 
-        <section className="results" aria-live="polite">
-          {!anyReady && (
-            <p className="empty">
-              {readings.some((r) => r.dimsTyped) && problems.length > 0
-                ? 'Corrija os campos indicados para ver o resultado.'
-                : 'Informe as medidas da unidade para ver quantas cabem em cada caixa.'}
-            </p>
-          )}
-
-          {shipment && active && (
-            <ShipmentLabel
-              shipment={shipment}
-              priority={active}
-              mode={mode}
-              alternatives={alternatives}
-              onPick={setPriority}
-              names={readings.map((r) => r.name)}
-              allowances={readings.map((r) =>
-                r.fragile ? fragileFactor(r.maxLayers, FRAGILE_LOAD) : null,
-              )}
-              lossMm={toMm(lossCm)}
-              hasWeight={readings.some((r) => r.unit.weightKg > 0)}
-            />
-          )}
-
-          {result?.fits.map((fits, i) => {
-            if (!fits) return null
-            const r = readings[i]
-            const key = products[i].id
-            if (fits.every((f) => f.capacity === 0)) {
-              return (
-                <p className="empty" key={key}>
-                  {many ? `${r.name}: ` : ''}
-                  Esta unidade não cabe em nenhuma das caixas disponíveis
-                  {r.upright ? ' mantendo-a em pé' : ''}. Confira as medidas, a folga interna e o
-                  limite de peso.
-                </p>
-              )
-            }
+        {result?.fits.map((fits, i) => {
+          if (!fits) return null
+          const r = readings[i]
+          const key = products[i].id
+          if (fits.every((f) => f.capacity === 0)) {
             return (
-              <section className="capacity" key={key}>
-                <h2>{many ? `${r.name}: quantas cabem em cada caixa` : 'Quantas cabem em cada caixa'}</h2>
-                {i === firstTable && !result.complete && (
-                  <p className="hint">
-                    {many
-                      ? 'Preencha medidas e quantidade de todos os produtos para montar o plano de caixas.'
-                      : 'Informe a quantidade do pedido para montar o plano de caixas.'}
-                  </p>
-                )}
-                {i === firstTable && off.length > 0 && (
-                  <p className="hint">
-                    Fora do cálculo, desmarcadas em Envio:{' '}
-                    {list(BOXES.filter((b) => off.includes(b.id)).map((b) => b.name))}.
-                  </p>
-                )}
-                {i === firstTable && tooBig.length > 0 && (
-                  <p className="hint">
-                    Fora do limite de tamanho para {mode.label}: {list(tooBig.map((b) => b.name))}.
-                  </p>
-                )}
-                <table>
-                  <thead>
-                    <tr>
-                      <th scope="col">Caixa</th>
-                      <th scope="col">Cabem</th>
-                      <th scope="col">Ocupação</th>
-                      <th scope="col" className="wide">
-                        Peso cheia
-                      </th>
-                      <th scope="col">
-                        <span className="sr-only">Arranjo</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {fits.map((fit) => {
-                      const id = `${key}:${fit.box.id}`
-                      return (
-                        <Fragment key={fit.box.id}>
-                          <tr>
-                            <th scope="row">
-                              <span className="tag">{fit.box.name}</span>
-                              <small>{dims(fit.box.dims)}</small>
-                            </th>
-                            <td>
-                              {fit.capacity > 0 ? num(fit.capacity, 0) : 'Não cabe'}
-                              {fit.capacity > 0 && fit.limitedBy === 'weight' && <small>limite de peso</small>}
-                              {fit.capacity > 0 && fit.limitedBy === 'layers' && (
-                                <small>limite de camadas</small>
-                              )}
-                            </td>
-                            <td>{fit.capacity > 0 ? pct(fit.fill) : ''}</td>
-                            <td className="wide">
-                              {fit.capacity > 0 && r.unit.weightKg > 0 ? kg(grossKg(fit, fit.capacity)) : ''}
-                            </td>
-                            <td>
-                              {fit.spaceCapacity > 0 && (
-                                <button
-                                  type="button"
-                                  className="link"
-                                  aria-expanded={open === id}
-                                  onClick={() => setOpen(open === id ? null : id)}
-                                >
-                                  {open === id ? 'Fechar' : 'Ver arranjo'}
-                                </button>
-                              )}
+              <p className="empty" key={key}>
+                {many ? `${r.name}: ` : ''}
+                Esta unidade não cabe em nenhuma das caixas disponíveis
+                {r.upright ? ' mantendo-a em pé' : ''}. Confira as medidas, a folga interna e o
+                limite de peso.
+              </p>
+            )
+          }
+          return (
+            <section className="capacity" key={key}>
+              <h2>{many ? `${r.name}: quantas cabem em cada caixa` : 'Quantas cabem em cada caixa'}</h2>
+              {i === firstTable && !result.complete && (
+                <p className="hint">
+                  {many
+                    ? 'Preencha medidas e quantidade de todos os produtos para montar o plano de caixas.'
+                    : 'Informe a quantidade do pedido para montar o plano de caixas.'}
+                </p>
+              )}
+              {i === firstTable && off.length > 0 && (
+                <p className="hint">
+                  Fora do cálculo, desmarcadas em Envio:{' '}
+                  {list(BOXES.filter((b) => off.includes(b.id)).map((b) => b.name))}.
+                </p>
+              )}
+              {i === firstTable && tooBig.length > 0 && (
+                <p className="hint">
+                  Fora do limite de tamanho para {mode.label}: {list(tooBig.map((b) => b.name))}.
+                </p>
+              )}
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Caixa</th>
+                    <th scope="col">Cabem</th>
+                    <th scope="col">Ocupação</th>
+                    <th scope="col" className="wide">
+                      Peso cheia
+                    </th>
+                    <th scope="col">
+                      <span className="sr-only">Arranjo</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fits.map((fit) => {
+                    const id = `${key}:${fit.box.id}`
+                    return (
+                      <Fragment key={fit.box.id}>
+                        <tr>
+                          <th scope="row">
+                            <span className="tag">{fit.box.name}</span>
+                            <small>{dims(fit.box.dims)}</small>
+                          </th>
+                          <td>
+                            {fit.capacity > 0 ? num(fit.capacity, 0) : 'Não cabe'}
+                            {fit.capacity > 0 && fit.limitedBy === 'weight' && <small>limite de peso</small>}
+                            {fit.capacity > 0 && fit.limitedBy === 'layers' && (
+                              <small>limite de camadas</small>
+                            )}
+                          </td>
+                          <td>{fit.capacity > 0 ? pct(fit.fill) : ''}</td>
+                          <td className="wide">
+                            {fit.capacity > 0 && r.unit.weightKg > 0 ? kg(grossKg(fit, fit.capacity)) : ''}
+                          </td>
+                          <td>
+                            {fit.spaceCapacity > 0 && (
+                              <button
+                                type="button"
+                                className="link"
+                                aria-expanded={open === id}
+                                onClick={() => setOpen(open === id ? null : id)}
+                              >
+                                {open === id ? 'Fechar' : 'Ver arranjo'}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                        {open === id && (
+                          <tr className="detail">
+                            <td colSpan={5}>
+                              <Arrangement fit={fit} product={many ? i : undefined} />
                             </td>
                           </tr>
-                          {open === id && (
-                            <tr className="detail">
-                              <td colSpan={5}>
-                                <Arrangement fit={fit} product={many ? i : undefined} />
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </section>
-            )
-          })}
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </section>
+          )
+        })}
 
-          {anyReady && (
-            <p className="disclaimer">
-              O cálculo é geométrico e segue as regras informadas para cada produto; não considera
-              deformação da embalagem nem amassamento. Confira a primeira caixa montada antes de
-              fechar o frete.
-            </p>
-          )}
-        </section>
-      </main>
-    </>
+        {anyReady && (
+          <p className="disclaimer">
+            O cálculo é geométrico e segue as regras informadas para cada produto; não considera
+            deformação da embalagem nem amassamento. Confira a primeira caixa montada antes de
+            fechar o frete.
+          </p>
+        )}
+      </section>
+    </main>
   )
+}
+
+/** Stands in for the plan when there is none yet, so saving can say what is missing. */
+const EMPTY_RESULT: Omit<ProposalResult, 'priority' | 'mode'> = {
+  headline: '',
+  totalBoxes: 0,
+  volumeM3: 0,
+  grossKg: 0,
+  cubedKg: 0,
+  chargeableKg: 0,
+  lines: [],
 }

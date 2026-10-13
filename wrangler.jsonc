@@ -1,12 +1,23 @@
-// Cloudflare Workers configuration: how the page is published.
-// The page is the static build in dist/; any path without a file of its own
-// gets index.html, so the page can have its own addresses later.
+// Cloudflare Workers configuration: how the page and its server are published.
+// The page is the static build; requests to /api/ go to the server code in
+// worker/, which keeps the saved propostas in a D1 database.
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "embalagem",
+  "main": "./worker/index.ts",
   "compatibility_date": "2026-09-29",
   "assets": {
-    "directory": "./dist",
-    "not_found_handling": "single-page-application"
-  }
+    // Any address without a file of its own gets index.html.
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "embalagem",
+      // Created 2026-10-13 in Francesco's account; local tests use a local copy.
+      "database_id": "ec99c5ba-b975-498d-8d11-2a2bfbd566a5"
+    }
+  ],
+  "observability": { "enabled": true }
 }
