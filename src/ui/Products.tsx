@@ -156,7 +156,7 @@ export function Products({
         <strong>Em pé:</strong> a altura fica sempre na vertical, para líquidos.{' '}
         <strong>Máx. camadas:</strong> quantas unidades podem ficar uma sobre a outra, contando outros
         produtos apoiados em cima; vazio é sem limite. <strong>Frágil:</strong> numa caixa com outros
-        produtos, vai por cima deles. Sobre cada unidade, outros produtos somam no máximo{' '}
+        produtos, vai por cima ou ao lado deles. Sobre cada unidade, outros produtos somam no máximo{' '}
         {FRAGILE_LOAD} vezes o peso dela, ou (Máx. camadas − 1) vezes se esse campo estiver
         preenchido. Informe o peso para isso valer.
       </p>
