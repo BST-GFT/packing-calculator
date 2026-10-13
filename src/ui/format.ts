@@ -17,6 +17,10 @@ export const brl = (n: number): string =>
 export const dims = (d: Dims): string =>
   `${num(d.length)} × ${num(d.width)} × ${num(d.height)} cm`
 
+/** A saved moment in local time: "13/10/2026, 15:42". */
+export const when = (iso: string): string =>
+  new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso))
+
 /** "1 caixa", "3 caixas" */
 export const count = (n: number, one: string, many: string): string =>
   `${num(n, 0)} ${n === 1 ? one : many}`

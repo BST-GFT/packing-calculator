@@ -25,23 +25,38 @@ sales on a PC to estimate freight. The interface is in Brazilian Portuguese.
 ## Commands
 
 ```
-npm install      # creates node_modules and package-lock.json
-npm run dev      # local page at http://localhost:5173
-npm test         # engine tests (Node's built-in runner, no extra packages)
-npm run typecheck
-npm run build    # output in dist/
+npm install       # creates node_modules
+npm run db:local  # once: creates the local test database in .wrangler/
+npm run dev       # page and server at http://localhost:5173, local database
+npm test          # engine and proposta tests (Node's built-in runner)
+npm run typecheck # generates Cloudflare's types, checks the page and the server
+npm run build     # page in dist/client/, server in dist/embalagem/
+npm run db:remote # applies new migrations/ to the real and preview databases (needs `npx wrangler login`)
 ```
 
-## Branches and publishing
+## Hosting, branches and publishing
 
-- Never commit straight to `main`. Work on `develop`.
+- The site runs on Cloudflare Workers (moved from GitHub Pages, 2026-10-13):
+  `embalagem.bestgift.workers.dev`, Worker "embalagem" in Francesco's
+  Cloudflare account. A custom address (`embalagem.bestgift.com.br`) is
+  planned once Best Gift's IT can set up the domain in Cloudflare.
+- Cloudflare builds on its own from the GitHub repo (Workers Builds):
+  `main` is production (`npx wrangler deploy`); other branches get a Preview
+  (`npx wrangler preview`, named after the branch). Previews use their own
+  database, `embalagem-preview` (the `previews` block in `wrangler.jsonc`), so
+  testing never touches the real propostas. `npm run db:remote` brings both
+  databases up to date. A failed build does not show in Cloudflare's
+  Deployments list; GitHub shows it as a failed "Workers Builds" check on the
+  commit, with a link to the log.
+- The old GitHub Pages address only forwards to the new one
+  (`.github/workflows/deploy.yml` publishes `redirect/`).
+- Never commit straight to `main`. Work on `develop`; a pull request into
+  `main` publishes. Merge with "Create a merge commit", not squash.
 - Every push to `develop` runs `.github/workflows/ci.yml`: install, tests,
   type-check, build.
-- A pull request from `develop` into `main` publishes: merging runs
-  `deploy.yml`, which deploys to GitHub Pages.
-- Not done yet: in the GitHub repo, Settings > Pages > Source must be set to
-  "GitHub Actions" before the first publish. Nothing has been merged to `main`.
 - `package-lock.json` is committed, so the workflows install with `npm ci`.
+- Secrets (the admin password, planned) live in Cloudflare's settings for the
+  Worker, never in the repo, which is public.
 
 ## Layout
 
@@ -54,7 +69,12 @@ npm run build    # output in dist/
 | `src/data/boxes.ts` | Stock boxes, internal loss, box penalty |
 | `src/data/shipping.ts` | Weight and size limits and cubed-weight rule per shipping mode |
 | `src/data/products.ts` | How much weight a fragile product can carry (`FRAGILE_LOAD`) |
-| `src/App.tsx`, `src/ui/` | The page; `ui/Products.tsx` is the product list, `ui/ShipmentLabel.tsx` the plan |
+| `src/App.tsx` | Picks the screen from the address: start, new proposta, list, saved proposta |
+| `src/ui/` | The page; `Calculator.tsx` the calculator, `Products.tsx` the product list, `ShipmentLabel.tsx` the plan, `ProposalList.tsx` the saved propostas |
+| `src/proposal/` | What a saved proposta keeps and its checks (shared with the server), the plan summary, calls to the server |
+| `worker/index.ts` | The server: `/api/proposals` on Cloudflare, with the D1 database |
+| `migrations/` | The database's tables, applied in order (`npm run db:local`, `db:remote`) |
+| `wrangler.jsonc` | Cloudflare settings: Worker name, database, which addresses reach the server |
 | `src/ui/Box3D.tsx` | The 3D view of a packed box (three.js), loaded on demand |
 | `src/styles.css` | All styling, plain CSS |
 | `src/assets/logo.jpg` | Best Shipping logo, trimmed and scaled for the header |
@@ -120,8 +140,22 @@ background it was drawn for.
   was the default before, but it could pick a CM plus several small boxes
   over two CMs, which costs more to send. "Least volume" and "balanced" are
   offered on the page when they differ.
-- Static page on GitHub Pages from a public repo. No server, no login. Anyone
-  with the link may open it.
+- Propostas (2026-10-13). The site opens on "Nova proposta" / "Carregar
+  proposta". A proposta is saved with a number (typed by the user, unique
+  whatever its capitals or spacing), a responsável and every product named;
+  none of these are needed just to calculate. It keeps the inputs as typed,
+  the Envio settings used and a summary of the result, so a loaded proposta
+  shows what was proposed and warns when today's calculation differs.
+  Saved propostas never change: the server has no route to change or delete
+  one, and a database trigger refuses updates. A loaded proposta can be saved
+  again only under a new number. Loading a proposta does not change the
+  device's own Envio settings, which are now remembered only when someone
+  changes them, so new defaults reach devices that never did.
+- No login: anyone with the link can use the site, load and save propostas
+  (Francesco, 2026-10-13). An admin area protected by a password checked on
+  the server (a Cloudflare secret) is planned for managing saved propostas.
+- The page and its server run on Cloudflare Workers with a D1 database, from
+  a public repo. No third-party login or tracking.
 - No third-party packing library. pyshipping is unmaintained and its packing
   code is licensed for research use only.
 - The box measurements in `src/data/boxes.ts` are internal (Francesco measured
@@ -139,11 +173,9 @@ background it was drawn for.
   (`limitedBy: 'layers'`).
 - No settings page for now (2026-10-09). Tuning values (box sizes, weight
   limits, cubed-weight rules, `FRAGILE_LOAD`, `BOX_PENALTY_LITERS`) stay in
-  `src/data/`. A password-guarded settings page was considered and may come
-  back if more values need adjusting. On a static site it would have to save
-  either per device or to the GitHub repository (needing a GitHub access key);
-  that choice is still open. A password in the page's code only prevents
-  accidents, since the repository is public.
+  `src/data/`. A settings page may come back if more values need adjusting;
+  with the D1 database and the planned admin password it could keep shared
+  settings that only the admin changes.
 - Each box's arrangement starts with a free-spinning 3D view (three.js),
   chosen over a dependency-free fixed drawing (2026-10-08). It shows only the
   units that go in under the weight limit, and a slider builds it layer by
@@ -202,6 +234,11 @@ Marked `TO CONFIRM` or `TO CALIBRATE` in `src/data/`. Ask before assuming:
   box mix is near-best rather than exact at that size.
 - The 3D view is not drawn above 20,000 units per box (`MAX_3D`); a short
   note points to the layer drawings instead.
+- Anyone with the link can save propostas, so nothing stops a stranger who
+  gets it from filling the list; the server only checks the shape and size of
+  what is saved. The list shows the 50 most recent; older ones are found by
+  searching. The server's own code (`worker/`) has no automated tests yet;
+  the proposta checks it uses (`src/proposal/`) do.
 - The page has been checked with Barlow loaded in a desktop browser, including
   phone-width emulation (375 and 320 px), but not on a real phone. The 3D
   view's touch handling in particular has only been tested with a mouse.

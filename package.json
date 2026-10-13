@@ -11,7 +11,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test \"src/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "wrangler types && tsc --noEmit && tsc --noEmit -p worker",
+    "db:local": "wrangler d1 migrations apply embalagem --local",
+    "db:remote": "wrangler d1 migrations apply embalagem --remote && wrangler d1 migrations apply embalagem --remote --preview"
   },
   "dependencies": {
     "react": "^19.2.0",
@@ -19,12 +21,14 @@
     "three": "^0.186.1"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.62.1",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^6.0.0",
     "typescript": "^6.0.0",
-    "vite": "^8.0.0"
+    "vite": "^8.0.0",
+    "wrangler": "^4.143.1"
   }
 }

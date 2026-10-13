@@ -1,0 +1,36 @@
+// Cloudflare Workers configuration: how the page and its server are published.
+// The page is the static build; requests to /api/ go to the server code in
+// worker/, which keeps the saved propostas in a D1 database.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "embalagem",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-09-29",
+  "assets": {
+    // Any address without a file of its own gets index.html.
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "embalagem",
+      // Created 2026-10-13 in Francesco's account; local tests use a local copy.
+      "database_id": "ec99c5ba-b975-498d-8d11-2a2bfbd566a5",
+      // embalagem-preview, so `wrangler d1 ... --preview` reaches the previews' database.
+      "preview_database_id": "5f909a39-a7ff-4b49-9d81-d7e2e2f6d832"
+    }
+  ],
+  // Previews of other branches (built by Cloudflare with `wrangler preview`) use
+  // their own database, so testing never touches the real propostas.
+  "previews": {
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "embalagem-preview",
+        "database_id": "5f909a39-a7ff-4b49-9d81-d7e2e2f6d832"
+      }
+    ]
+  },
+  "observability": { "enabled": true }
+}

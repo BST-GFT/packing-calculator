@@ -1,7 +1,10 @@
 /** The plan for the order, drawn like a shipping label. */
 
+import type { ReactNode } from 'react'
+
 import type { ShippingMode } from '../data/shipping.ts'
 import { freightWeight, type Priority, type Shipment, type ShipmentLine } from '../engine/index.ts'
+import { headline } from '../proposal/summary.ts'
 import { Arrangement, MixedArrangement } from './Arrangement.tsx'
 import { brl, count, kg, list, m3, num, pct } from './format.ts'
 
@@ -28,6 +31,9 @@ export function ShipmentLabel({
   allowances,
   lossMm,
   hasWeight,
+  number,
+  responsible,
+  children,
 }: {
   shipment: Shipment
   priority: Priority
@@ -41,6 +47,11 @@ export function ShipmentLabel({
   /** Space lost on each box dimension, mm. */
   lossMm: number
   hasWeight: boolean
+  /** The proposta's number and responsible, shown when filled in. */
+  number: string
+  responsible: string
+  /** Goes after the list of boxes, before how to pack them: saving the proposta. */
+  children?: ReactNode
 }) {
   const many = names.length > 1
   const weights = freightWeight(shipment, mode.cubage)
@@ -48,18 +59,6 @@ export function ShipmentLabel({
     (sum, l) => sum + l.boxes * l.contents.reduce((n, c) => n + c.units, 0),
     0,
   )
-
-  // Boxes of each size, largest first as the lines are, for the headline.
-  const sizes: Array<{ name: string; boxes: number }> = []
-  for (const line of shipment.lines) {
-    const size = sizes.find((s) => s.name === line.box.name)
-    if (size) size.boxes += line.boxes
-    else sizes.push({ name: line.box.name, boxes: line.boxes })
-  }
-  const headline =
-    sizes.length === 1
-      ? `${count(shipment.totalBoxes, 'caixa', 'caixas')} ${sizes[0].name}`
-      : `${count(shipment.totalBoxes, 'caixa', 'caixas')}: ${list(sizes.map((s) => `${num(s.boxes, 0)} ${s.name}`))}`
 
   const contents = (line: ShipmentLine) =>
     many
@@ -81,7 +80,14 @@ export function ShipmentLabel({
     <article className="plan">
       <header className="plan-head">
         <div>
-          <h2>{headline}</h2>
+          {(number || responsible) && (
+            <p className="plan-proposal">
+              {number && `Proposta ${number}`}
+              {number && responsible && ' · '}
+              {responsible && `Responsável: ${responsible}`}
+            </p>
+          )}
+          <h2>{headline(shipment)}</h2>
           <p>
             {many
               ? `${count(units, 'unidade', 'unidades')} de ${names.length} produtos.`
@@ -151,6 +157,8 @@ export function ShipmentLabel({
           </li>
         ))}
       </ul>
+
+      {children}
 
       {layouts.map((line, i) => (
         <section className="how" key={i}>
