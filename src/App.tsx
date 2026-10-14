@@ -8,6 +8,9 @@ import { Admin } from './ui/Admin.tsx'
 import { Calculator } from './ui/Calculator.tsx'
 import { ProposalList } from './ui/ProposalList.tsx'
 
+/** "0.9" for version 0.9.0, "0.9.1" for 0.9.1. */
+const VERSION = __APP_VERSION__.replace(/\.0$/, '')
+
 /**
  * Which screen the address shows. The part after # keeps the page a single
  * file while giving each screen, and each saved proposta, its own address:
@@ -81,6 +84,7 @@ export function App() {
           <Admin />
         </WithSettings>
       )}
+      <p className="version">v{VERSION}</p>
     </SettingsProvider>
   )
 }

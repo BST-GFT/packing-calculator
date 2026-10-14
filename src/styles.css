@@ -1334,6 +1334,18 @@ th:last-child {
   font-size: 13px;
 }
 
+/* Version, in the bottom right corner */
+
+.version {
+  position: fixed;
+  right: 8px;
+  bottom: 6px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
 /* Printing: the plan only */
 
 @media print {
@@ -1350,6 +1362,7 @@ th:last-child {
   .print,
   .alternatives,
   .capacity,
+  .version,
   .view3d-bar,
   .view3d-hint {
     display: none;

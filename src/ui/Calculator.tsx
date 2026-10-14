@@ -164,9 +164,9 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
     start ? start.shipping.off : Array.isArray(saved.off) ? saved.off : [],
   )
 
-  // Fewest boxes first: fewer, fuller boxes are usually what costs least to send.
+  // Least volume first (Francesco, 2026-10-14); the other choices are offered under the plan.
   const [priority, setPriority] = useState<Priority>(
-    start?.priority ?? (boxes.every((b) => b.costBRL !== undefined) ? 'cost' : 'boxes'),
+    start?.priority ?? (boxes.every((b) => b.costBRL !== undefined) ? 'cost' : 'volume'),
   )
   const [open, setOpen] = useState<string | null>(null)
 
