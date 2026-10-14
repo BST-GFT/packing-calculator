@@ -175,8 +175,6 @@ export function FreightPanel({
   saved: { id: number; number: string } | null
   onSaved: (freight: Freight) => void
 }) {
-  // Open on a saved proposta, where freight is usually filled in later.
-  const [open] = useState(saved !== null)
   const [saving, setSaving] = useState<Saving>({ state: 'idle' })
   const [fileProblem, setFileProblem] = useState('')
 
@@ -237,7 +235,8 @@ export function FreightPanel({
   )
 
   return (
-    <details className="panel freight" open={open}>
+    // Starts folded, like Envio (Francesco, 2026-10-14); the summary says what is in it.
+    <details className="panel freight">
       <summary>
         Frete
         <small>
