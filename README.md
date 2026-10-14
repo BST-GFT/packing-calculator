@@ -81,7 +81,9 @@ tries in a minute from one connection are refused for a minute.
    - lowest cost, once every box has a `costBRL`
 4. **Several products.** Each product fills its own boxes as above. What is
    left over of each is mixed into shared boxes when that saves boxes, packed
-   unit by unit with products marked "Frágil" on top. Other products may rest
+   unit by unit with products marked "Frágil" on top. Then a box of
+   leftovers is emptied into the room other boxes leave, when all of it fits
+   there; what is already in those boxes stays put. Other products may rest
    on a fragile one up to (Máx. camadas − 1) times its weight, or
    `FRAGILE_LOAD` (3) times when Máx. camadas is empty, set in
    `src/data/products.ts` (`engine/shipment.ts`, `engine/mixed.ts`).

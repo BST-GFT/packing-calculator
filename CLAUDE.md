@@ -123,8 +123,22 @@ background it was drawn for.
   produto"; the name is optional. Each product fills its own boxes as if it
   were alone. Only the leftovers, what would go in each product's partly
   filled box, are mixed into shared boxes, and only when that saves boxes, or
-  volume for the same number of boxes. Full boxes are never mixed. Leftovers
-  above 400 units in all (`MIX_LIMIT`) stay in their own boxes.
+  volume for the same number of boxes. Leftovers above 400 units in all
+  (`MIX_LIMIT`) stay in their own boxes.
+- A box of leftovers is emptied into the room other boxes leave when all its
+  units fit there (2026-10-14, Francesco's test: 20 boxes of 17 × 39 × 18 cm
+  fill five CMs only half, as a CM takes four, and 10 cups took a P of their
+  own). The units already in a box stay exactly where they are, arranged as
+  in that product's own boxes; the newcomers go beside or on top of them
+  under every rule (support, Máx. camadas, Frágil, weight). Each time, the
+  box with room for the most of them is used, so they go in as few boxes as
+  possible rather than a few in each. Only leftovers move, and only to save a
+  box. A box of one product takes only other products, and boxes of more
+  than 1,000 units (`HOST_LIMIT`) take none, as packing around them is slow
+  and units that small leave little room. Such a box is shown as mixed, with
+  a note to start with its own product as usual (`base` on the line). Over
+  400 random orders this saved at least one box in 179 and added one in none
+  (210 boxes fewer in all), at about the same planning time.
 - "Frágil" (off by default) replaced an "Outros por cima" checkbox that people
   in logistics would find hard to read (2026-10-09). In a mixed box, fragile
   products are packed after all the others, so they end up on top. Other

@@ -156,6 +156,10 @@ export function MixedArrangement({
     if (last && last.text === text && last.to === i - 1) last.to = i
     else steps.push({ from: i, to: i, text })
   })
+  // A box topped up: one product arranged as in its own boxes, then the rest.
+  const base = line.contents.find((c) => c.product === line.base)
+  const others = line.contents.filter((c) => c.product !== line.base)
+  const one = base?.units === 1
   const fragile = (product: number) => allowances[product] !== null
   const allowed = (factor: number) =>
     factor === 0
@@ -176,6 +180,15 @@ export function MixedArrangement({
           </li>
         ))}
       </ul>
+      {base && (
+        <p className="note">
+          Comece {one ? 'pela' : 'pelas'} {count(base.units, 'unidade', 'unidades')} de {names[base.product]},{' '}
+          {one ? 'arrumada' : 'arrumadas'} como numa caixa {line.box.name} só com {one ? 'ela' : 'elas'}. Depois
+          ponha{' '}
+          {list(others.map((c) => `${count(c.units, 'unidade', 'unidades')} de ${names[c.product]}`))} no
+          espaço que sobra.
+        </p>
+      )}
       {line.contents
         .filter((c) => fragile(c.product))
         .map((c) => (
