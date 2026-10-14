@@ -12,12 +12,22 @@ with its products and the plan) in a database; saved propostas never change.
 Each device also remembers its own shipping mode, protection and boxes
 switched off.
 
+Each proposta has a **Frete** section for the carrier's quote: carrier, its
+price, the ideal price for the customer (1.4 times it), the price charged, the
+day of the quote, the tracking code once posted, and the quote itself as an
+image or PDF. It can be filled in when the proposta is saved or later with
+"Atualizar frete"; every version is kept and the rest of the proposta never
+changes. The files are kept in Cloudflare R2.
+
+The version is in the bottom right corner of the page; it comes from
+`version` in `package.json`.
+
 **Administração** (link at the bottom of the start screen) is behind the admin
 password. There the admin can correct a saved proposta's number or
 responsável, delete a proposta for good, and change the settings everyone
 uses: the boxes in stock, the weight and size limits and cubed-weight rules,
-the default folga, how much weight a fragile product carries, and how much one
-extra box is worth.
+the default folga, how much weight a fragile product carries, how much one
+extra box is worth, the carriers offered for freight and the 1.4 factor.
 
 ## Run it on your computer
 
@@ -74,8 +84,8 @@ tries in a minute from one connection are refused for a minute.
 3. **The order.** Knowing how many units each box holds, it finds the mix of
    box sizes that covers each product's quantity best (`engine/plan.ts`).
    "Best" is one of:
-   - fewest boxes (default), then least volume
-   - least volume
+   - least volume (default)
+   - fewest boxes, then least volume
    - balanced: least volume, where every extra box must save at least
      `BOX_PENALTY_LITERS` litres to be worth it
    - lowest cost, once every box has a `costBRL`
@@ -102,7 +112,8 @@ theoretical maximum.
 - Merging into `main` publishes: Cloudflare builds and deploys it on its own.
 - A change to the database tables goes in a new file in `migrations/`, applied
   to the real and preview databases with `npm run db:remote` before the code
-  that needs it is published.
+  that needs it is published: before merging into `main`.
+- Raise `version` in `package.json` with each batch that goes to `main`.
 
 ## To confirm with logistics
 

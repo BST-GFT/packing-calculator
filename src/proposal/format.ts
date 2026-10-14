@@ -5,6 +5,7 @@
  */
 
 import type { Priority } from '../engine/index.ts'
+import type { Freight } from './freight.ts'
 
 /** Raised when the layout of what is saved changes, so older propostas can still be read. */
 export const FORMAT = 1
@@ -73,6 +74,9 @@ export interface Proposal extends ProposalDraft {
   savedAt: string
   /** When the admin last corrected its number or responsible, if ever. */
   correctedAt?: string | null
+  /** Its freight now, if any, and every version, newest first. */
+  freight?: Freight | null
+  freightHistory?: Freight[]
 }
 
 /** One row of the list of saved propostas. */
@@ -84,6 +88,10 @@ export interface ProposalSummary {
   products: string
   headline: string
   savedAt: string
+  /** The carrier of its freight now, if any. */
+  carrier?: string | null
+  /** Its carrier gives a tracking code and none is filled in yet. */
+  trackingPending?: boolean
 }
 
 /** Longest text accepted in each field, and most products per proposta. */

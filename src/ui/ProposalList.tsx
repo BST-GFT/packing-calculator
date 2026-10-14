@@ -41,7 +41,7 @@ export function ProposalList() {
         <Field
           label="Buscar"
           inputMode="text"
-          placeholder="Número, responsável ou produto"
+          placeholder="Número, responsável, produto ou transportadora"
           value={search}
           onChange={(value) => {
             setSearch(value)
@@ -67,6 +67,8 @@ export function ProposalList() {
                 <span className="proposal-headline">{p.headline}</span>
                 <small>
                   {p.products} · {p.responsible} · {when(p.savedAt)}
+                  {p.carrier && ` · Frete: ${p.carrier}`}
+                  {p.trackingPending && <span className="pending">rastreio pendente</span>}
                 </small>
               </a>
             </li>

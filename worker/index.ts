@@ -5,6 +5,8 @@
  *   GET    /api/proposals?q=...         the latest propostas, optionally searched
  *   GET    /api/proposals/:id           one proposta, in full
  *   POST   /api/proposals               save a new proposta
+ *   POST   /api/proposals/:id/freight   save a new version of a proposta's freight
+ *   GET    /api/files/:key              a file attached to freight
  *   GET    /api/settings                the settings in use
  *
  *   POST   /api/admin/login             the admin password, for a token
@@ -14,11 +16,19 @@
  *   PUT    /api/admin/settings          save new settings for everyone
  *
  * Only the admin routes, with a token, change a proposta (its number and
- * responsible; the database refuses any other change) or delete one.
+ * responsible; the database refuses any other change) or delete one. Its
+ * freight is apart: anyone with the link adds versions, none ever changes.
  */
 
+import {
+  FILE_TYPES,
+  MAX_FILE_BYTES,
+  readFreight,
+  type Freight,
+  type FreightFile,
+} from '../src/proposal/freight.ts'
 import { FORMAT, LIMITS, numberKey, readDraft, type ProposalSummary } from '../src/proposal/format.ts'
-import { DEFAULT_SETTINGS, readSettings } from '../src/settings/format.ts'
+import { DEFAULT_SETTINGS, readSettings, type Settings } from '../src/settings/format.ts'
 import { adminPassword, issueToken, sameText, validToken } from './admin.ts'
 
 /** Most propostas listed at once. */
@@ -52,8 +62,18 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
     if (method === 'GET') return get(env, Number(one[1]))
     return reply({ error: 'Propostas salvas não podem ser alteradas.' }, 405, { Allow: 'GET' })
   }
+  const freight = /^\/api\/proposals\/(\d+)\/freight$/.exec(path)
+  if (freight) {
+    if (method === 'POST') return saveFreight(request, env, Number(freight[1]))
+    return notAllowed('POST')
+  }
+  const file = /^\/api\/files\/(\d+\/[0-9a-f-]{36})$/.exec(path)
+  if (file) {
+    if (method === 'GET') return getFile(env, file[1])
+    return notAllowed('GET')
+  }
   if (path === '/api/settings') {
-    if (method === 'GET') return settings(env)
+    if (method === 'GET') return reply(await currentSettings(env))
     return notAllowed('GET')
   }
 
@@ -84,19 +104,24 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
 async function list(env: Env, url: URL): Promise<Response> {
   const search = (url.searchParams.get('q') ?? '').trim().slice(0, 80)
   const pattern = `%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+  // With the carrier of each one's latest freight, which can be searched too.
   const { results } = await env.DB.prepare(
-    `SELECT id, number, responsible, products, headline, saved_at AS savedAt
-       FROM proposals
+    `SELECT p.id, p.number, p.responsible, p.products, p.headline, p.saved_at AS savedAt,
+            f.carrier, f.tracking_needed = 1 AND f.tracking = '' AS pending
+       FROM proposals p
+       LEFT JOIN freight f ON f.id = (SELECT MAX(id) FROM freight WHERE proposal_id = p.id)
       WHERE ?1 = ''
-         OR number LIKE ?2 ESCAPE '\\'
-         OR responsible LIKE ?2 ESCAPE '\\'
-         OR products LIKE ?2 ESCAPE '\\'
-      ORDER BY id DESC
+         OR p.number LIKE ?2 ESCAPE '\\'
+         OR p.responsible LIKE ?2 ESCAPE '\\'
+         OR p.products LIKE ?2 ESCAPE '\\'
+         OR f.carrier LIKE ?2 ESCAPE '\\'
+      ORDER BY p.id DESC
       LIMIT ?3`,
   )
     .bind(search, pattern, PAGE)
-    .all<ProposalSummary>()
-  return reply({ proposals: results })
+    .all<Omit<ProposalSummary, 'trackingPending'> & { pending: number | null }>()
+  const proposals: ProposalSummary[] = results.map(({ pending, ...p }) => ({ ...p, trackingPending: pending === 1 }))
+  return reply({ proposals })
 }
 
 async function get(env: Env, id: number): Promise<Response> {
@@ -115,8 +140,20 @@ async function get(env: Env, id: number): Promise<Response> {
       correctedAt: string | null
     }>()
   if (!row) return reply({ error: 'Proposta não encontrada.' }, 404)
+  const { results } = await env.DB.prepare(
+    'SELECT * FROM freight WHERE proposal_id = ? ORDER BY id DESC LIMIT 100',
+  )
+    .bind(id)
+    .all<FreightRow>()
+  const history = results.map(toFreight)
   return reply({
-    proposal: { ...row, input: JSON.parse(row.input), result: JSON.parse(row.result) },
+    proposal: {
+      ...row,
+      input: JSON.parse(row.input),
+      result: JSON.parse(row.result),
+      freight: history[0] ?? null,
+      freightHistory: history,
+    },
   })
 }
 
@@ -183,22 +220,166 @@ async function correct(request: Request, env: Env, id: number): Promise<Response
 }
 
 async function remove(env: Env, id: number): Promise<Response> {
-  const done = await env.DB.prepare('DELETE FROM proposals WHERE id = ?').bind(id).run()
+  // Its freight and the files attached to it go too.
+  const { results: files } = await env.DB.prepare(
+    'SELECT DISTINCT file_key AS key FROM freight WHERE proposal_id = ? AND file_key IS NOT NULL',
+  )
+    .bind(id)
+    .all<{ key: string }>()
+  const [, done] = await env.DB.batch([
+    env.DB.prepare('DELETE FROM freight WHERE proposal_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM proposals WHERE id = ?').bind(id),
+  ])
   if (done.meta.changes === 0) return reply({ error: 'Proposta não encontrada.' }, 404)
+  if (files.length > 0) await env.FILES.delete(files.map((f) => f.key))
   return reply({ deleted: true })
+}
+
+// Freight
+
+interface FreightRow {
+  id: number
+  carrier: string
+  tracking_needed: number
+  quoted_brl: number
+  factor: number
+  charged_brl: number
+  quote_date: string
+  tracking: string
+  file_key: string | null
+  file_name: string | null
+  file_type: string | null
+  file_size: number | null
+  saved_at: string
+}
+
+const toFreight = (r: FreightRow): Freight => ({
+  id: r.id,
+  carrier: r.carrier,
+  trackingNeeded: r.tracking_needed === 1,
+  quotedBRL: r.quoted_brl,
+  factor: r.factor,
+  chargedBRL: r.charged_brl,
+  quoteDate: r.quote_date,
+  tracking: r.tracking,
+  file: r.file_key
+    ? { key: r.file_key, name: r.file_name ?? '', type: r.file_type ?? '', size: r.file_size ?? 0 }
+    : null,
+  savedAt: r.saved_at,
+})
+
+/**
+ * A new version of a proposta's freight, sent as a form: `freight` holds the
+ * values as JSON, `file` a new quote file, or `keep` the key of the file of
+ * an earlier version to keep.
+ */
+async function saveFreight(request: Request, env: Env, id: number): Promise<Response> {
+  const exists = await env.DB.prepare('SELECT 1 FROM proposals WHERE id = ?').bind(id).first()
+  if (!exists) return reply({ error: 'Proposta não encontrada.' }, 404)
+
+  const broken = reply({ error: 'O pedido veio com defeito.' }, 400)
+  let form: FormData
+  let value: unknown
+  try {
+    form = await request.formData()
+    value = JSON.parse(String(form.get('freight')))
+  } catch {
+    return broken
+  }
+  const latest = await env.DB.prepare('SELECT * FROM freight WHERE proposal_id = ? ORDER BY id DESC LIMIT 1')
+    .bind(id)
+    .first<FreightRow>()
+  const { settings } = await currentSettings(env)
+  const read = readFreight(value, settings.carriers, latest && toFreight(latest))
+  if ('problems' in read) return reply({ error: read.problems.join(' '), problems: read.problems }, 400)
+
+  // The quote's file: a new one, one kept from an earlier version, or none.
+  let file: FreightFile | null = null
+  const upload = form.get('file')
+  const keep = form.get('keep')
+  if (upload instanceof File) {
+    if (!FILE_TYPES.includes(upload.type)) {
+      return reply({ error: 'Anexe uma imagem (JPG, PNG ou WebP) ou um PDF.' }, 400)
+    }
+    if (upload.size > MAX_FILE_BYTES) return reply({ error: 'O anexo pode ter até 10 MB.' }, 413)
+    file = {
+      key: `${id}/${crypto.randomUUID()}`,
+      name: upload.name.slice(0, 120) || 'cotacao',
+      type: upload.type,
+      size: upload.size,
+    }
+    await env.FILES.put(file.key, upload, { httpMetadata: { contentType: upload.type } })
+  } else if (typeof keep === 'string' && keep) {
+    const earlier = await env.DB.prepare(
+      'SELECT * FROM freight WHERE proposal_id = ? AND file_key = ? LIMIT 1',
+    )
+      .bind(id, keep)
+      .first<FreightRow>()
+    if (!earlier) return reply({ error: 'O anexo anterior não foi encontrado. Anexe o arquivo de novo.' }, 400)
+    file = toFreight(earlier).file
+  }
+
+  const f = read.freight
+  try {
+    const row = await env.DB.prepare(
+      `INSERT INTO freight (proposal_id, carrier, tracking_needed, quoted_brl, factor, charged_brl,
+                            quote_date, tracking, file_key, file_name, file_type, file_size)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       RETURNING *`,
+    )
+      .bind(
+        id,
+        f.carrier,
+        f.trackingNeeded ? 1 : 0,
+        f.quotedBRL,
+        settings.chargeFactor,
+        f.chargedBRL,
+        f.quoteDate,
+        f.tracking,
+        file?.key ?? null,
+        file?.name ?? null,
+        file?.type ?? null,
+        file?.size ?? null,
+      )
+      .first<FreightRow>()
+    return reply({ freight: toFreight(row!) }, 201)
+  } catch (error) {
+    // A file nobody points to would only take space.
+    if (upload instanceof File && file) await env.FILES.delete(file.key)
+    throw error
+  }
+}
+
+/** A file attached to freight, while some version of that freight still points to it. */
+async function getFile(env: Env, key: string): Promise<Response> {
+  const row = await env.DB.prepare('SELECT * FROM freight WHERE file_key = ? LIMIT 1')
+    .bind(key)
+    .first<FreightRow>()
+  const object = row ? await env.FILES.get(key) : null
+  if (!row || !object) return reply({ error: 'Anexo não encontrado.' }, 404)
+  return new Response(object.body, {
+    headers: {
+      // Only the types accepted on upload, never guessed by the browser.
+      'Content-Type': row.file_type ?? 'application/octet-stream',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(row.file_name ?? 'cotacao')}`,
+      'Cache-Control': 'private, no-cache',
+    },
+  })
 }
 
 // Settings
 
-async function settings(env: Env): Promise<Response> {
+/** The settings saved last, or the factory ones until the admin first saves. */
+async function currentSettings(env: Env): Promise<{ settings: Settings; savedAt: string | null }> {
   const row = await env.DB.prepare('SELECT value, saved_at AS savedAt FROM settings ORDER BY id DESC LIMIT 1')
     .first<{ value: string; savedAt: string }>()
   if (row) {
     const read = readSettings(JSON.parse(row.value))
-    if ('settings' in read) return reply({ settings: read.settings, savedAt: row.savedAt })
+    if ('settings' in read) return { settings: read.settings, savedAt: row.savedAt }
     console.error('Saved settings no longer pass the checks; using the factory defaults.', read.problems)
   }
-  return reply({ settings: DEFAULT_SETTINGS, savedAt: null })
+  return { settings: DEFAULT_SETTINGS, savedAt: null }
 }
 
 async function saveSettings(request: Request, env: Env): Promise<Response> {
