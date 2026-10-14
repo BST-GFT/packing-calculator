@@ -1,7 +1,9 @@
 /**
  * Packing several products together, unit by unit.
  *
- * Used for what is left over once each product has filled its own boxes.
+ * Used for what is left over once each product has filled its own boxes:
+ * packed together into shared boxes (`packMixed`), or into the room another
+ * box leaves around the units already in it, which stay put (`topUp`).
  * Each unit goes to the lowest free corner that placed units leave (an
  * "extreme point"), then the one furthest back, then furthest left. Each
  * product keeps one way of lying, chosen by trying them all, so its units
@@ -93,7 +95,16 @@ interface Placed {
 
 type Shape = [number, number, number]
 
+/** Units already in the box when packing starts, as solid blocks, and their weight. */
+interface Start {
+  blocks: Placed[]
+  weightKg: number
+}
+
+const EMPTY: Start = { blocks: [], weightKg: 0 }
+
 interface Packing {
+  /** The blocks the packing started from, then the units placed. */
   placed: Placed[]
   /** Units left over, per item. */
   left: number[]
@@ -177,10 +188,10 @@ function pack(items: MixedItem[], boxes: BoxType[], rules: BoxRules): MixedBox[]
 }
 
 /** The first order that fits everything; failing that, most units placed, then the lowest stack. */
-function bestPacking(items: MixedItem[], box: BoxType, rules: BoxRules): Packing {
+function bestPacking(items: MixedItem[], box: BoxType, rules: BoxRules, start = EMPTY): Packing {
   let best: Packing | null = null
   for (const strategy of STRATEGIES) {
-    const packing = packOnce(items, box, rules, strategy)
+    const packing = packOnce(items, box, rules, strategy, start)
     const better =
       !best ||
       packing.placed.length > best.placed.length ||
@@ -192,7 +203,13 @@ function bestPacking(items: MixedItem[], box: BoxType, rules: BoxRules): Packing
   return best!
 }
 
-function packOnce(items: MixedItem[], box: BoxType, rules: BoxRules, strategy: Strategy): Packing {
+function packOnce(
+  items: MixedItem[],
+  box: BoxType,
+  rules: BoxRules,
+  strategy: Strategy,
+  start: Start,
+): Packing {
   const room = {
     x: toMm(box.dims.length - rules.lossCm),
     y: toMm(box.dims.width - rules.lossCm),
@@ -221,10 +238,11 @@ function packOnce(items: MixedItem[], box: BoxType, rules: BoxRules, strategy: S
         items[a].product - items[b].product,
     )
 
-  const placed: Placed[] = []
+  // Loads change as units go in, so the blocks are copied.
+  const placed: Placed[] = start.blocks.map((b) => ({ ...b }))
   const left = items.map((i) => i.count)
   let points: Array<{ x: number; y: number; z: number }> = [{ x: 0, y: 0, z: 0 }]
-  let weight = 0
+  let weight = start.weightKg
 
   // Lowest first, then by rows in the chosen direction.
   const rank = (p: { x: number; y: number; z: number }) =>
@@ -337,6 +355,7 @@ function packOnce(items: MixedItem[], box: BoxType, rules: BoxRules, strategy: S
     })
     points.sort((a, b) => before(rank(a), rank(b)))
   }
+  for (const block of placed) addPoints(block)
 
   /** Places as many units of item `index` as fit, turned only in the given ways. */
   const placeAll = (index: number, shapes: Shape[]) => {
@@ -393,6 +412,7 @@ function packOnce(items: MixedItem[], box: BoxType, rules: BoxRules, strategy: S
   // the one that places the most units wins, then the lowest pile, then the
   // one leaving the most floor free for what comes next.
   for (const index of order) {
+    if (left[index] === 0) continue
     const choices = strategy.oneWay ? layings(items[index]) : [orientations(items[index])]
     if (choices.length === 1) {
       placeAll(index, choices[0])
@@ -479,4 +499,216 @@ function toMixedBox(items: MixedItem[], box: BoxType, packing: Packing, rules: B
     contents: [...units].sort((a, b) => a[0] - b[0]).map(([product, n]) => ({ product, units: n })),
     grossKg: box.emptyWeightKg + rules.protectionKg + weight,
   }
+}
+
+/** Packing into boxes that already hold units, since the page plans the same boxes several times. */
+const recentTopUps = new Map<string, ToppedUp>()
+
+/** Above this many pieces, packing around what a box holds is skipped as too slow. */
+const MAX_BLOCKS = 200
+
+export interface ToppedUp {
+  /** Every unit in the box, those already there and the guests, bottom layers first. */
+  placed: PlacedUnit[]
+  /** Units placed of each guest, in the order given. */
+  taken: number[]
+  grossKg: number
+}
+
+/**
+ * Puts as many `guests` as fit into the room a box leaves around the units
+ * already in it, which stay where they are: beside them, or on top within
+ * every rule above, the residents' layer limits and fragility included.
+ * `kinds` describes the products of `residents`. The result may be shared
+ * with other calls, so it must not be changed.
+ */
+export function topUp(
+  box: BoxType,
+  residents: PlacedUnit[],
+  kinds: MixedItem[],
+  guests: MixedItem[],
+  rules: BoxRules,
+): ToppedUp {
+  const key = JSON.stringify([box, residents, kinds, guests, rules])
+  const known = recentTopUps.get(key)
+  if (known) return known
+
+  const residentKg = residents.reduce(
+    (sum, u) => sum + kinds.find((k) => k.product === u.product)!.weightKg,
+    0,
+  )
+  let result: ToppedUp = {
+    placed: residents,
+    taken: guests.map(() => 0),
+    grossKg: box.emptyWeightKg + rules.protectionKg + residentKg,
+  }
+  const { blocks, levels } = blocksOf(residents, kinds)
+  if (blocks.length <= MAX_BLOCKS && guests.some((g) => g.count > 0)) {
+    // The residents' products come first, with nothing left to place.
+    const items = [...kinds.map((k) => ({ ...k, count: 0 })), ...guests]
+    const packing = bestPacking(items, box, rules, { blocks, weightKg: residentKg })
+    const taken = guests.map((g, k) => g.count - packing.left[kinds.length + k])
+    const added: PlacedUnit[] = packing.placed.slice(blocks.length).map((u) => ({
+      at: { length: u.x, width: u.y, height: u.z },
+      size: { length: u.dx, width: u.dy, height: u.dz },
+      layer: u.level - 1,
+      turned: false,
+      product: items[u.item].product,
+    }))
+    result = {
+      placed: [...residents.map((u, i) => ({ ...u, layer: levels[i] - 1 })), ...added].sort(
+        (a, b) => a.layer - b.layer || a.at.height - b.at.height,
+      ),
+      taken,
+      grossKg: result.grossKg + guests.reduce((sum, g, k) => sum + taken[k] * g.weightKg, 0),
+    }
+  }
+  recentTopUps.set(key, result)
+  if (recentTopUps.size > RECENT) recentTopUps.delete(recentTopUps.keys().next().value!)
+  return result
+}
+
+/**
+ * The units already in a box as solid blocks to pack around: units resting
+ * exactly on one another merge into columns, and equal columns side by side
+ * into rows, so a full box is a handful of pieces rather than hundreds. Also
+ * gives each unit its level, counted from the floor.
+ */
+function blocksOf(units: PlacedUnit[], kinds: MixedItem[]): { blocks: Placed[]; levels: number[] } {
+  const kindOf = new Map(kinds.map((k, i) => [k.product, i]))
+  interface Column {
+    item: number
+    x: number
+    y: number
+    z: number
+    dx: number
+    dy: number
+    dz: number
+    /** The units in it, bottom first. */
+    members: number[]
+  }
+
+  // Columns: units of one product with the same footprint, one right on another.
+  const stacks = new Map<string, number[]>()
+  units.forEach((u, i) => {
+    const key = [u.product, u.at.length, u.at.width, u.size.length, u.size.width].join('|')
+    const stack = stacks.get(key)
+    if (stack) stack.push(i)
+    else stacks.set(key, [i])
+  })
+  const columns: Column[] = []
+  for (const stack of stacks.values()) {
+    stack.sort((a, b) => units[a].at.height - units[b].at.height)
+    let column: Column | null = null
+    for (const i of stack) {
+      const u = units[i]
+      if (column && column.z + column.dz === u.at.height) {
+        column.dz += u.size.height
+        column.members.push(i)
+      } else {
+        column = {
+          item: kindOf.get(u.product)!,
+          x: u.at.length,
+          y: u.at.width,
+          z: u.at.height,
+          dx: u.size.length,
+          dy: u.size.width,
+          dz: u.size.height,
+          members: [i],
+        }
+        columns.push(column)
+      }
+    }
+  }
+
+  // Levels, bottom up: a column starts one above the highest it rests on.
+  columns.sort((a, b) => a.z - b.z)
+  const levels = new Array<number>(units.length).fill(1)
+  const tops: number[] = []
+  const ceilings: number[] = []
+  columns.forEach((c, i) => {
+    let below = 0
+    let ceiling = Infinity
+    for (let j = 0; j < i; j++) {
+      const q = columns[j]
+      if (q.z + q.dz !== c.z || overlap(c, q) === 0) continue
+      below = Math.max(below, tops[j])
+      ceiling = Math.min(ceiling, ceilings[j])
+    }
+    const first = below + 1
+    c.members.forEach((m, k) => (levels[m] = first + k))
+    tops[i] = first + c.members.length - 1
+    ceilings[i] = Math.min(ceiling, first + kinds[c.item].maxLayers - 1)
+  })
+
+  let blocks: Placed[] = columns.map((c, i) => ({
+    item: c.item,
+    x: c.x,
+    y: c.y,
+    z: c.z,
+    dx: c.dx,
+    dy: c.dy,
+    dz: c.dz,
+    level: tops[i],
+    ceiling: ceilings[i],
+    under: [],
+    load: 0,
+  }))
+  blocks = joinRows(joinRows(blocks, 'x'), 'y')
+
+  // What each block rests on, with the share of its weight each takes.
+  blocks.sort((a, b) => a.z - b.z || a.y - b.y || a.x - b.x)
+  for (const b of blocks) {
+    if (b.z === 0) continue
+    const touching: Array<[number, number]> = []
+    let covered = 0
+    blocks.forEach((q, j) => {
+      if (q.z + q.dz !== b.z) return
+      const area = overlap(b, q)
+      if (area > 0) {
+        touching.push([j, area])
+        covered += area
+      }
+    })
+    b.under = touching.map(([j, area]): [number, number] => [j, area / covered])
+  }
+  return { blocks, levels }
+}
+
+/** Area two pieces share seen from above, mm². */
+function overlap(
+  a: { x: number; y: number; dx: number; dy: number },
+  b: { x: number; y: number; dx: number; dy: number },
+): number {
+  const ox = Math.min(a.x + a.dx, b.x + b.dx) - Math.max(a.x, b.x)
+  const oy = Math.min(a.y + a.dy, b.y + b.dy) - Math.max(a.y, b.y)
+  return ox > 0 && oy > 0 ? ox * oy : 0
+}
+
+/** Joins blocks that touch end to end along `along` and match in everything else. */
+function joinRows(blocks: Placed[], along: 'x' | 'y'): Placed[] {
+  const across = along === 'x' ? 'y' : 'x'
+  const length = along === 'x' ? 'dx' : 'dy'
+  const width = along === 'x' ? 'dy' : 'dx'
+  const rows = new Map<string, Placed[]>()
+  for (const b of blocks) {
+    const key = [b.item, b.level, b.ceiling, b.z, b.dz, b[across], b[width]].join('|')
+    const row = rows.get(key)
+    if (row) row.push(b)
+    else rows.set(key, [b])
+  }
+  const joined: Placed[] = []
+  for (const row of rows.values()) {
+    row.sort((a, b) => a[along] - b[along])
+    let current: Placed | null = null
+    for (const b of row) {
+      if (current && current[along] + current[length] === b[along]) {
+        current[length] += b[length]
+      } else {
+        current = { ...b }
+        joined.push(current)
+      }
+    }
+  }
+  return joined
 }

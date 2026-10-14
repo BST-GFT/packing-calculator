@@ -9,7 +9,7 @@ import { packLayer, type Rect } from './layer.ts'
 import { packMixed, type BoxRules, type MixedBox, type MixedItem } from './mixed.ts'
 import { placeUnits, type PlacedUnit } from './place.ts'
 import { planOrder } from './plan.ts'
-import { planShipment, type Product } from './shipment.ts'
+import { planShipment, type Product, type ShipmentLine } from './shipment.ts'
 import { MIN_SUPPORT, supportedShare } from './support.ts'
 import type { Axis, BoxType, PackingRules, Unit } from './types.ts'
 
@@ -671,6 +671,118 @@ describe('mixing products in a box', () => {
         assert.equal(shipment.totalBoxes, shipment.lines.reduce((sum, l) => sum + l.boxes, 0))
       }
     }
+  })
+
+  // The products as the packer sees them, and a planned box as a packed one.
+  const kinds = (products: Product[]) =>
+    products.map((p, i) => item(i, 0, 0, 0, 0, { ...p, dims: p.unit.dims, weightKg: p.unit.weightKg }))
+  const packed = (line: ShipmentLine): MixedBox => ({
+    box: line.box,
+    placed: line.placed!,
+    contents: line.contents,
+    grossKg: line.grossKgPerBox,
+  })
+  const summary = (lines: ShipmentLine[]) =>
+    lines.map((l) => `${l.boxes}x${l.box.id}:${l.contents.map((c) => `${c.product}=${c.units}`).join(',')}`)
+
+  it('puts leftovers in the room a full box leaves', () => {
+    // Found in testing (2026-10-14): a CM takes only 4 of these 17 × 39 × 18
+    // boxes, about half its volume, and 10 cups went in a P of their own. They
+    // fit beside the 4 in one of the CMs.
+    const products = [product(unit(17, 39, 18, 0.3), 20), product(unit(10, 10, 18, 0.25), 10)]
+    const shipment = planShipment(products, fitsFor(products), 'boxes', ROOM)!
+    assert.deepEqual(summary(shipment.lines), ['4xCM:0=4', '1xCM:0=4,1=10'])
+    const topped = shipment.lines[1]
+    assert.equal(topped.base, 0)
+    assertMixedValid(packed(topped), kinds(products), ROOM)
+    // The four keep the arrangement of the CMs holding only them.
+    const where = (units: PlacedUnit[]) => units.map((u) => JSON.stringify([u.at, u.size])).sort()
+    assert.deepEqual(
+      where(topped.placed!.filter((u) => u.product === 0)),
+      where(placeUnits(shipment.lines[0].fit!, 4, 0)),
+    )
+  })
+
+  it('spreads leftovers over several boxes when one has too little room', () => {
+    // 22 cups would need a G of their own; no CM has room for all of them.
+    const products = [product(unit(17, 39, 18, 0.3), 20), product(unit(10, 10, 18, 0.25), 22)]
+    const shipment = planShipment(products, fitsFor(products), 'boxes', ROOM)!
+    assert.equal(shipment.totalBoxes, 5)
+    assert.ok(shipment.lines.every((l) => l.box.id === 'CM'))
+    const topped = shipment.lines.filter((l) => l.placed)
+    assert.equal(topped.length, 2)
+    for (const line of topped) assertMixedValid(packed(line), kinds(products), ROOM)
+  })
+
+  it("keeps a fragile product's allowance when topping up its boxes", () => {
+    // A 1 kg tray covers the floor of an X, leaving room only on top. It
+    // carries three times its weight: two 1.5 kg cubes, so three cubes need
+    // both trays' boxes; a 3.5 kg cube is too heavy for either.
+    const X = box('X', 40, 30, 30)
+    const plan = (cubeKg: number) => {
+      const products = [
+        product(unit(40, 30, 20, 1), 2, { fragile: true }),
+        product(unit(10, 10, 10, cubeKg), 3),
+      ]
+      const fits = products.map((p) => [fitUnitInBox(p.unit, X, RULES)])
+      const shipment = planShipment(products, fits, 'boxes', ROOM)!
+      for (const line of shipment.lines.filter((l) => l.placed)) {
+        assertMixedValid(packed(line), kinds(products), ROOM)
+      }
+      return summary(shipment.lines).sort()
+    }
+    assert.deepEqual(plan(1.5), ['1xX:0=1,1=1', '1xX:0=1,1=2'])
+    assert.deepEqual(plan(3.5), ['1xX:1=3', '2xX:0=1'])
+  })
+
+  it('keeps the layer limit of what a box already holds', () => {
+    // A board stacked at most 2 high takes cubes on top of it; at most 1 high,
+    // nothing, and it covers the whole floor, so the cubes keep their box.
+    const X = box('X', 40, 30, 30)
+    const plan = (maxLayers: number) => {
+      const products = [product(unit(40, 30, 20), 2, { maxLayers }), product(unit(10, 10, 10), 5)]
+      const fits = products.map((p) => [fitUnitInBox(p.unit, X, { ...RULES, maxLayers: p.maxLayers })])
+      const shipment = planShipment(products, fits, 'boxes', ROOM)!
+      for (const line of shipment.lines.filter((l) => l.placed)) {
+        assertMixedValid(packed(line), kinds(products), ROOM)
+      }
+      return shipment.totalBoxes
+    }
+    assert.equal(plan(2), 2)
+    assert.equal(plan(1), 3)
+  })
+
+  it('keeps every rule in boxes topped up, with random orders', () => {
+    const rnd = random(71)
+    let topped = 0
+    for (let n = 0; n < 40; n++) {
+      const products = Array.from({ length: 2 + Math.floor(rnd() * 2) }, () =>
+        product(
+          unit(4 + Math.floor(rnd() * 300) / 10, 4 + Math.floor(rnd() * 250) / 10, 3 + Math.floor(rnd() * 200) / 10, Math.floor(rnd() * 900) / 1000),
+          1 + Math.floor(rnd() * 60),
+          {
+            fragile: rnd() < 0.3,
+            maxLayers: rnd() < 0.25 ? 1 + Math.floor(rnd() * 3) : Infinity,
+            keepUpright: rnd() < 0.2,
+          },
+        ),
+      )
+      const fits = fitsFor(products)
+      if (products.some((_, p) => fits[p].every((f) => f.capacity === 0))) continue
+      const shipment = planShipment(products, fits, 'boxes', ROOM)!
+      for (const line of shipment.lines.filter((l) => l.placed)) {
+        assertMixedValid(packed(line), kinds(products), ROOM)
+        if (line.base !== null) topped++
+      }
+      products.forEach((p, i) => {
+        const shipped = shipment.lines.reduce(
+          (sum, l) => sum + l.boxes * (l.contents.find((c) => c.product === i)?.units ?? 0),
+          0,
+        )
+        assert.equal(shipped, p.quantity, 'every unit is shipped once')
+      })
+    }
+    assert.ok(topped > 0, 'some boxes were topped up')
   })
 
   it('plans a single product as before', () => {
