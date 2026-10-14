@@ -251,7 +251,9 @@ background it was drawn for.
   a loss for padding or a looser fit.
 - Transportadora allows 25 kg per box; Correios stays at 30 kg (2026-10-08).
 - The "Envio" settings start folded on every screen size; they are set once
-  and rarely change.
+  and rarely change. "Frete" starts folded too, on new and saved propostas
+  alike (Francesco, 2026-10-14); its summary line shows the carrier, the
+  price charged and a pending tracking code.
 - "Máximo de camadas" on the product is optional and empty by default (no
   limit). It caps how many units sit on top of each other. With a limit the
   units go in flat layers only, each one unit tall, so "camadas" in the result
