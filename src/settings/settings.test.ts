@@ -74,4 +74,45 @@ describe('saving settings', () => {
   it('names boxes by their trimmed capitals', () => {
     assert.equal(boxId('  cm '), 'CM')
   })
+
+  it('takes carriers and the charge factor', () => {
+    const s = sent()
+    s.carriers = [
+      { name: ' Sedex ', tracking: true },
+      { name: 'Jadlog', tracking: false },
+    ]
+    s.chargeFactor = 1.5
+    const read = readSettings(s)
+    assert.ok('settings' in read)
+    assert.deepEqual(read.settings.carriers, [
+      { name: 'Sedex', tracking: true },
+      { name: 'Jadlog', tracking: false },
+    ])
+    assert.equal(read.settings.chargeFactor, 1.5)
+  })
+
+  it('gives settings saved before carriers existed the factory ones', () => {
+    const { carriers: _, chargeFactor: __, ...older } = sent()
+    const read = readSettings(older)
+    assert.ok('settings' in read)
+    assert.deepEqual(read.settings.carriers, DEFAULT_SETTINGS.carriers)
+    assert.equal(read.settings.chargeFactor, DEFAULT_SETTINGS.chargeFactor)
+  })
+
+  it('says what is wrong with carriers', () => {
+    const s = sent()
+    s.carriers = [
+      { name: 'Sedex', tracking: true },
+      { name: 'sedex', tracking: false },
+      { name: '', tracking: false },
+    ]
+    s.chargeFactor = 0.5
+    assert.deepEqual(readSettings(s), {
+      problems: [
+        'Transportadora 3: dê um nome de até 40 letras.',
+        'Duas transportadoras não podem ter o mesmo nome.',
+        'O valor ideal de cobrança deve ir de 1 a 10 vezes o valor da transportadora.',
+      ],
+    })
+  })
 })

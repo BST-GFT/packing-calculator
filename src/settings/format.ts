@@ -1,6 +1,7 @@
 /**
  * Settings shared by everyone: the boxes in stock, the shipping modes' limits
- * and cubed-weight rules, and the tuning values. The admin changes them in
+ * and cubed-weight rules, the tuning values, and the carriers offered for
+ * freight with what the customer should ideally be charged. The admin changes them in
  * the site; the values in src/data/ are the factory defaults, used until the
  * admin first saves and whenever the saved ones cannot be read.
  *
@@ -9,6 +10,7 @@
  */
 
 import { BOXES, BOX_PENALTY_LITERS, DEFAULT_LOSS_CM } from '../data/boxes.ts'
+import { CARRIERS, CHARGE_FACTOR, type Carrier } from '../data/freight.ts'
 import { FRAGILE_LOAD } from '../data/products.ts'
 import { SHIPPING_MODES, type ShippingMode } from '../data/shipping.ts'
 import type { BoxType } from '../engine/index.ts'
@@ -23,6 +25,10 @@ export interface Settings {
   boxPenaltyLiters: number
   /** Times its weight a fragile unit with no layer limit carries in other products. */
   fragileLoad: number
+  /** Carriers to choose from in a proposta's "Frete" section. */
+  carriers: Carrier[]
+  /** The ideal price to charge the customer for freight, as a multiple of the carrier's. */
+  chargeFactor: number
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -31,10 +37,13 @@ export const DEFAULT_SETTINGS: Settings = {
   lossCm: DEFAULT_LOSS_CM,
   boxPenaltyLiters: BOX_PENALTY_LITERS,
   fragileLoad: FRAGILE_LOAD,
+  carriers: CARRIERS,
+  chargeFactor: CHARGE_FACTOR,
 }
 
-/** Most boxes in stock, and the range each number may take. */
+/** Most boxes in stock and carriers, and the range each number may take. */
 const MAX_BOXES = 20
+const MAX_CARRIERS = 30
 const RANGE = {
   side: [1, 300],
   emptyKg: [0, 50],
@@ -48,16 +57,22 @@ const RANGE = {
   lossCm: [0, 10],
   penalty: [0, 1000],
   fragileLoad: [0, 50],
+  chargeFactor: [1, 10],
 } as const
 
 /** A box's id: its name, trimmed and in capitals. */
 export const boxId = (name: string): string => name.trim().toLocaleUpperCase('pt-BR')
 
+/** A carrier's name in the form that must be unique: no capitals or spacing differences. */
+export const carrierKey = (name: string): string =>
+  name.trim().replace(/\s+/g, ' ').toLocaleUpperCase('pt-BR')
+
 /**
  * Reads settings to be saved. Returns them, cleaned up, when every value is
  * usable; otherwise the problems, in words for the page. The shipping modes'
  * names and how their cubed weight is counted are fixed: only their numbers
- * come from what was sent.
+ * come from what was sent. Settings saved before carriers existed get the
+ * factory carriers and charge factor.
  */
 export function readSettings(value: unknown): { settings: Settings } | { problems: string[] } {
   const shape = 'As configurações vieram incompletas. Recarregue a página e tente de novo.'
@@ -145,6 +160,30 @@ export function readSettings(value: unknown): { settings: Settings } | { problem
     problems.push('O peso sobre um produto frágil deve ir de 0 a 50 vezes o peso dele.')
   }
 
+  // Carriers
+  const carriers: Carrier[] = []
+  const sentCarriers: unknown = value.carriers ?? DEFAULT_SETTINGS.carriers
+  if (!Array.isArray(sentCarriers)) {
+    problems.push(shape)
+  } else {
+    if (sentCarriers.length > MAX_CARRIERS) problems.push(`Cadastre no máximo ${MAX_CARRIERS} transportadoras.`)
+    sentCarriers.slice(0, MAX_CARRIERS).forEach((c: unknown, i) => {
+      if (!isObject(c) || typeof c.tracking !== 'boolean') {
+        problems.push(shape)
+        return
+      }
+      const name = typeof c.name === 'string' ? c.name.trim() : ''
+      if (!name || name.length > 40) problems.push(`Transportadora ${i + 1}: dê um nome de até 40 letras.`)
+      carriers.push({ name, tracking: c.tracking })
+    })
+    const names = carriers.map((c) => carrierKey(c.name)).filter(Boolean)
+    if (new Set(names).size !== names.length) problems.push('Duas transportadoras não podem ter o mesmo nome.')
+  }
+  const chargeFactor = value.chargeFactor ?? DEFAULT_SETTINGS.chargeFactor
+  if (!inRange(chargeFactor, RANGE.chargeFactor)) {
+    problems.push('O valor ideal de cobrança deve ir de 1 a 10 vezes o valor da transportadora.')
+  }
+
   if (problems.length > 0) return { problems: [...new Set(problems)] }
   return {
     settings: {
@@ -153,6 +192,8 @@ export function readSettings(value: unknown): { settings: Settings } | { problem
       lossCm: value.lossCm as number,
       boxPenaltyLiters: value.boxPenaltyLiters as number,
       fragileLoad: value.fragileLoad as number,
+      carriers,
+      chargeFactor: chargeFactor as number,
     },
   }
 }

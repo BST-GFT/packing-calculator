@@ -15,10 +15,12 @@ import {
 } from '../engine/index.ts'
 import { saveProposal } from '../proposal/api.ts'
 import { readDraft, type Proposal, type ProposalInput, type ProposalResult } from '../proposal/format.ts'
+import type { Freight } from '../proposal/freight.ts'
 import { sameBoxes, summarize } from '../proposal/summary.ts'
 import { useSettings } from '../settings/context.tsx'
 import { Arrangement } from './Arrangement.tsx'
 import { Field, Segmented } from './controls.tsx'
+import { checkFreight, FreightPanel, freightForm, sendFreight } from './Freight.tsx'
 import { dims, kg, list, num, parseDecimal, pct, when } from './format.ts'
 import { blankProduct, productName, Products, type ProductInput } from './Products.tsx'
 import { ShipmentLabel, shipmentKey } from './ShipmentLabel.tsx'
@@ -164,9 +166,9 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
     start ? start.shipping.off : Array.isArray(saved.off) ? saved.off : [],
   )
 
-  // Fewest boxes first: fewer, fuller boxes are usually what costs least to send.
+  // Least volume first (Francesco, 2026-10-14); the other choices are offered under the plan.
   const [priority, setPriority] = useState<Priority>(
-    start?.priority ?? (boxes.every((b) => b.costBRL !== undefined) ? 'cost' : 'boxes'),
+    start?.priority ?? (boxes.every((b) => b.costBRL !== undefined) ? 'cost' : 'volume'),
   )
   const [open, setOpen] = useState<string | null>(null)
 
@@ -185,6 +187,14 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
       : null,
   )
   const [saving, setSaving] = useState<Saving>({ state: 'idle' })
+
+  // Freight as typed, and the saved proposta's versions of it, newest first.
+  const [freight, setFreight] = useState(() => freightForm(loaded?.freight ?? null))
+  const [freightHistory, setFreightHistory] = useState<Freight[]>(loaded?.freightHistory ?? [])
+  const savedFreight = (f: Freight, earlier: Freight[]) => {
+    setFreightHistory([f, ...earlier])
+    setFreight(freightForm(f))
+  }
 
   const maxKg = parseDecimal(maxWeight)
   const protectionKg = parseDecimal(protection)
@@ -287,13 +297,20 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
       result: current ?? { ...EMPTY_RESULT, priority: input.priority, mode: mode.label },
     }
     const checked = readDraft(draft)
-    if ('problems' in checked) {
-      setSaving({ state: 'refused', problems: checked.problems })
+    // Freight is optional, but once a carrier is chosen the rest is needed.
+    const freightChecked = checkFreight(freight, settings.carriers, null)
+    const problems = [
+      ...('problems' in checked ? checked.problems : []),
+      ...(freightChecked && 'problems' in freightChecked ? freightChecked.problems.map((p) => `Frete: ${p}`) : []),
+    ]
+    if ('problems' in checked || problems.length > 0) {
+      setSaving({ state: 'refused', problems })
       return
     }
     setSaving({ state: 'saving' })
+    let done: { id: number; savedAt: string }
     try {
-      const done = await saveProposal(checked.draft)
+      done = await saveProposal(checked.draft)
       setRecord({
         id: done.id,
         number: number.trim(),
@@ -304,11 +321,25 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
         result: checked.draft.result,
         loaded: false,
       })
+      setFreightHistory([])
       setSaving({ state: 'idle' })
       // The address now points at the saved proposta, without reloading the page.
       history.replaceState(null, '', `#proposta/${done.id}`)
     } catch (error) {
       setSaving({ state: 'refused', problems: [(error as Error).message] })
+      return
+    }
+    if (freightChecked && 'draft' in freightChecked) {
+      try {
+        savedFreight(await sendFreight(done.id, freight, freightChecked.draft), [])
+      } catch (error) {
+        setSaving({
+          state: 'refused',
+          problems: [
+            `A proposta foi salva, mas o frete não: ${(error as Error).message} Tente de novo com "Atualizar frete".`,
+          ],
+        })
+      }
     }
   }
 
@@ -455,6 +486,17 @@ export function Calculator({ loaded }: { loaded: Proposal | null }) {
             ))}
           </div>
         </details>
+
+        <FreightPanel
+          form={freight}
+          onChange={setFreight}
+          carriers={settings.carriers}
+          factor={settings.chargeFactor}
+          current={freightHistory[0] ?? null}
+          history={freightHistory}
+          saved={record ? { id: record.id, number: record.number } : null}
+          onSaved={(f) => savedFreight(f, freightHistory)}
+        />
       </form>
 
       <section className="results" aria-live="polite">

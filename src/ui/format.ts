@@ -32,6 +32,34 @@ export function parseDecimal(text: string): number {
   return Number(cleaned)
 }
 
+/**
+ * Reads an amount of money as people type it: "1.234,50", "1234,5", "R$ 80".
+ * A point is read as a thousands separator when three digits follow it, as in
+ * "1.234"; otherwise as the decimal point. NaN when it is not an amount.
+ */
+export function parseMoney(text: string): number {
+  let cleaned = text.replace(/R\$|\s/g, '')
+  if (cleaned.includes(',')) cleaned = cleaned.replace(/\./g, '').replace(',', '.')
+  else if (/^\d{1,3}(\.\d{3})+$/.test(cleaned)) cleaned = cleaned.replace(/\./g, '')
+  return parseDecimal(cleaned)
+}
+
+/** An amount for a money field: "1234,50". */
+export const moneyText = (n: number): string => n.toFixed(2).replace('.', ',')
+
+/** A day written YYYY-MM-DD, the Brazilian way: "14/10/2026". */
+export const day = (iso: string): string => iso.split('-').reverse().join('/')
+
+/** Today in local time, YYYY-MM-DD. */
+export function today(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** A file size: "230 KB", "1,4 MB". */
+export const fileSize = (bytes: number): string =>
+  bytes < 1_000_000 ? `${num(Math.max(1, Math.round(bytes / 1000)), 0)} KB` : `${num(bytes / 1_000_000, 1)} MB`
+
 /** "A, B e C" */
 export function list(parts: string[]): string {
   if (parts.length <= 1) return parts.join('')

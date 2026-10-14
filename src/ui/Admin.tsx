@@ -296,12 +296,20 @@ interface ModeForm {
   ignore: string
 }
 
+interface CarrierForm {
+  key: number
+  name: string
+  tracking: boolean
+}
+
 interface Form {
   boxes: BoxForm[]
   modes: ModeForm[]
   loss: string
   penalty: string
   fragile: string
+  carriers: CarrierForm[]
+  factor: string
 }
 
 const optional = (n: number | undefined) => (n === undefined ? '' : num(n, 3))
@@ -330,6 +338,8 @@ function toForm(s: Settings): Form {
     loss: num(s.lossCm, 2),
     penalty: num(s.boxPenaltyLiters, 1),
     fragile: num(s.fragileLoad, 2),
+    carriers: s.carriers.map((c, i) => ({ key: i, ...c })),
+    factor: num(s.chargeFactor, 2),
   }
 }
 
@@ -356,6 +366,8 @@ function fromForm(f: Form): unknown {
     lossCm: n(f.loss),
     boxPenaltyLiters: n(f.penalty),
     fragileLoad: n(f.fragile),
+    carriers: f.carriers.map(({ name, tracking }) => ({ name, tracking })),
+    chargeFactor: n(f.factor),
   }
 }
 
@@ -374,6 +386,8 @@ function SettingsAdmin({ token, onLoggedOut }: { token: string; onLoggedOut: (e:
     change({ boxes: form.boxes.map((b) => (b.key === key ? { ...b, ...next } : b)) })
   const changeMode = (id: string, next: Partial<ModeForm>) =>
     change({ modes: form.modes.map((m) => (m.id === id ? { ...m, ...next } : m)) })
+  const changeCarrier = (key: number, next: Partial<CarrierForm>) =>
+    change({ carriers: form.carriers.map((c) => (c.key === key ? { ...c, ...next } : c)) })
 
   const save = async () => {
     const read = readSettings(fromForm(form))
@@ -489,6 +503,64 @@ function SettingsAdmin({ token, onLoggedOut }: { token: string; onLoggedOut: (e:
       ))}
       <p className="hint">
         Zero em maior lado ou soma: sem limite. O fator dos Correios é 166,667 kg/m³ (C × L × A ÷ 6000).
+      </p>
+
+      <h3>Frete</h3>
+      <div className="admin-carriers">
+        {form.carriers.map((c) => (
+          <div className="admin-carrier" key={c.key} role="group" aria-label={c.name || 'Transportadora nova'}>
+            <Field
+              label="Transportadora"
+              inputMode="text"
+              value={c.name}
+              onChange={(name) => changeCarrier(c.key, { name })}
+            />
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={c.tracking}
+                onChange={(e) => changeCarrier(c.key, { tracking: e.target.checked })}
+              />
+              <span>Tem código de rastreio</span>
+            </label>
+            <button
+              type="button"
+              className="remove"
+              aria-label={c.name ? `Remover ${c.name}` : 'Remover a transportadora nova'}
+              onClick={() => change({ carriers: form.carriers.filter((x) => x.key !== c.key) })}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        className="add"
+        onClick={() =>
+          change({
+            carriers: [
+              ...form.carriers,
+              { key: Math.max(0, ...form.carriers.map((c) => c.key)) + 1, name: '', tracking: false },
+            ],
+          })
+        }
+      >
+        + Adicionar transportadora
+      </button>
+      <div className="admin-row admin-row-wide">
+        <Field
+          label="Valor ideal de cobrança"
+          suffix="× o valor"
+          value={form.factor}
+          onChange={(factor) => change({ factor })}
+          hint="Quantas vezes o valor da transportadora o cliente deveria pagar de frete."
+        />
+      </div>
+      <p className="hint">
+        As transportadoras aparecem na seção Frete de cada proposta. Com código de rastreio, a proposta
+        mostra o rastreio como pendente até ele ser preenchido. Tirar uma transportadora da lista não
+        muda as propostas que já a usam.
       </p>
 
       <h3>Outros valores</h3>

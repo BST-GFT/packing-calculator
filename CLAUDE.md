@@ -56,6 +56,15 @@ npm run db:remote # applies new migrations/ to the real and preview databases (n
 - Every push to `develop` runs `.github/workflows/ci.yml`: install, tests,
   type-check, build.
 - `package-lock.json` is committed, so the workflows install with `npm ci`.
+- Files attached to freight (the carriers' quotes) are kept in R2, Cloudflare's
+  file storage: bucket `embalagem-anexos`, and `embalagem-anexos-preview` for
+  previews (`r2_buckets` in `wrangler.jsonc`). Francesco enabled R2 with a card
+  on 2026-10-14; the free tier covers 10 GB. Both buckets must exist before a
+  build that binds them, or the build fails.
+- Version: `version` in `package.json`, shown in the bottom right corner of the
+  page ("v0.9" for 0.9.0). Raise it with each batch of changes that goes to
+  `main`: the last number for fixes, the middle one for new features. 0.9.0
+  was the first (2026-10-14).
 - Secrets live in Cloudflare's settings for the Worker, never in the repo,
   which is public. The only one is `ADMIN_PASSWORD`, set by Francesco in the
   dashboard (Worker embalagem → Settings → Variables and Secrets); the
@@ -77,7 +86,9 @@ npm run db:remote # applies new migrations/ to the real and preview databases (n
 | `src/settings/` | The settings in use: their format and checks (`readSettings`, shared with the server), and `SettingsProvider`, which loads them once for every screen |
 | `src/App.tsx` | Picks the screen from the address: start, new proposta, list, saved proposta, admin |
 | `src/ui/` | The page; `Calculator.tsx` the calculator, `Products.tsx` the product list, `ShipmentLabel.tsx` the plan, `ProposalList.tsx` the saved propostas, `Admin.tsx` the admin area |
-| `src/proposal/` | What a saved proposta keeps and its checks (shared with the server), the plan summary, calls to the server |
+| `src/proposal/` | What a saved proposta keeps and its checks (shared with the server), the plan summary, calls to the server; `freight.ts` the freight and its checks |
+| `src/ui/Freight.tsx` | The "Frete" section: carrier, prices, quote date, tracking code, attached quote |
+| `src/data/freight.ts` | Factory carriers and the charge factor (1.4) |
 | `src/admin/api.ts` | The admin area's calls to the server, and keeping the login for the browser tab |
 | `worker/index.ts` | The server on Cloudflare, with the D1 database: `/api/proposals`, `/api/settings`, `/api/admin/...` |
 | `worker/admin.ts` | Checking the admin password and the login token (tested in `worker/admin.test.ts`) |
@@ -157,11 +168,12 @@ background it was drawn for.
 - Units may be turned any way by default. "Em pé" keeps the height vertical,
   for liquids and fragile items.
 - Box sizes may be mixed in one order.
-- Default box choice is "fewest boxes", then least volume (2026-10-09). The
-  "balanced" choice (least volume, each extra box worth `BOX_PENALTY_LITERS`)
-  was the default before, but it could pick a CM plus several small boxes
-  over two CMs, which costs more to send. "Least volume" and "balanced" are
-  offered on the page when they differ.
+- Default box choice is "least volume" (Francesco, 2026-10-14). It was "fewest
+  boxes" from 2026-10-09, and "balanced" (least volume, each extra box worth
+  `BOX_PENALTY_LITERS`) before that. Least volume can choose more, smaller
+  boxes (500 mugs of 10.5 × 8 × 5 cm: 8 boxes against 6), so "Menos caixas"
+  and the other choices are offered under the plan whenever they differ. With
+  a cost on every box, lowest cost is the default instead.
 - Propostas (2026-10-13). The site opens on "Nova proposta" / "Carregar
   proposta". A proposta is saved with a number (typed by the user, unique
   whatever its capitals or spacing), a responsável and every product named;
@@ -174,6 +186,32 @@ background it was drawn for.
   Loading a proposta does not change the device's own Envio choices.
 - No login: anyone with the link can use the site, load and save propostas
   (Francesco, 2026-10-13).
+- Freight, the "Frete" section (2026-10-14, asked for by sales). Carrier, from
+  a dropdown of the carriers the admin lists; the carrier's price; the ideal
+  price for the customer, the carrier's times `chargeFactor` (1.4), shown and
+  never typed; the price actually charged; the day of the quote; the tracking
+  code; and the carrier's quote as an image or PDF. Optional for saving a
+  proposta, since a quote usually comes hours later; once a carrier is chosen
+  every price and the date are needed. The tracking code is never required:
+  it exists only once the package is posted, so for carriers marked as having
+  one (Sedex) it shows as pending, on the proposta and in the list, until it
+  is filled in (Francesco's choice over requiring it). The section is called
+  "Frete" because Envio already has a mode called Transportadora.
+  Freight lives apart from the proposta, which never changes: anyone with
+  the link adds a version with "Atualizar frete", every version is kept, the
+  newest is in use, and the database refuses changes to any version. A new
+  version keeps the earlier file unless replaced or removed. A loaded
+  proposta saved under a new number takes the freight on the page with it,
+  file included (copied). The ideal price uses the factor in use when each
+  version was saved. Deleting a proposta in the admin area deletes its
+  freight and files.
+- Attached files go to R2, chosen over the database and KV for room (10 GB
+  free, about 40,000 screenshots) at the cost of a card on file (Francesco,
+  2026-10-14). Images are scaled to at most 2000 px and saved as JPEG in the
+  browser before sending (a screenshot is typically 30 to 300 KB); PDFs go as
+  they are. Up to 10 MB a file. Files are served only while some freight
+  version points to them, with their stored type and no guessing by the
+  browser.
 - Admin area (`#admin`, linked at the bottom of the start screen; 2026-10-13).
   One shared password, `ADMIN_PASSWORD`, checked on the server. Logging in
   gives a token signed with the password (HMAC), good for 12 hours and kept
@@ -282,6 +320,10 @@ factory values should change too.
   box mix is near-best rather than exact at that size.
 - The 3D view is not drawn above 20,000 units per box (`MAX_3D`); a short
   note points to the layer drawings instead.
+- Anyone with the link can attach files to freight, up to 10 MB each, so a
+  stranger with the link could fill the bucket past the free 10 GB, which
+  R2 would then charge for (about US$ 0.015 per GB a month). Nothing limits
+  uploads yet beyond the file size.
 - Anyone with the link can save propostas, so nothing stops a stranger who
   gets it from filling the list; the server only checks the shape and size of
   what is saved; the admin can delete what should not be there. The list
