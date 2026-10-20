@@ -17,9 +17,11 @@ export interface ShippingMode {
  * Transportadora allows 25 kg per box (confirmed by Francesco, 2026-10-08,
  * after briefly trying 30 kg).
  *
+ * Transportadora's cubed weight is C × L × A / 6000 for the whole shipment,
+ * about 166.67 kg/m³, the carriers' standard (sales, 2026-10-20). It was
+ * 300 kg/m³ before, which overstated it.
+ *
  * TO CONFIRM with logistics and the contracts in use:
- *   - Transportadora: the 300 kg/m³ factor is the usual one for road freight;
- *     parcel carriers often use 167 instead.
  *   - Correios: 30 kg, 100 cm per side and 200 cm for the three sides added
  *     are the published PAC/SEDEX limits. Cubed weight is C × L × A / 6000,
  *     charged per parcel. Sources disagree on whether it is ignored up to
@@ -32,7 +34,7 @@ export const SHIPPING_MODES: ShippingMode[] = [
     maxGrossKg: 25,
     maxSideCm: 0,
     maxSumCm: 0,
-    cubage: { kgPerM3: 300, scope: 'shipment', ignoreUpToKg: 0 },
+    cubage: { kgPerM3: 1_000_000 / 6000, scope: 'shipment', ignoreUpToKg: 0 },
   },
   {
     id: 'correios',
