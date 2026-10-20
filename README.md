@@ -120,6 +120,5 @@ theoretical maximum.
 These are marked `TO CONFIRM` or `TO CALIBRATE` in `src/data/`. Once known,
 set them in Administração:
 
-- The cubed-weight factor the carriers in use apply (300 kg/m³ for now).
 - For Correios, whether cubed weight is ignored up to 5 kg or 10 kg.
 - `BOX_PENALTY_LITERS`: how much volume one extra box is worth.

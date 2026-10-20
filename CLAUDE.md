@@ -250,6 +250,13 @@ background it was drawn for.
   a box, 2026-10-08), so `DEFAULT_LOSS_CM` is 0. The page still lets users set
   a loss for padding or a looser fit.
 - Transportadora allows 25 kg per box; Correios stays at 30 kg (2026-10-08).
+- Cubed weight is C × L × A (cm) ÷ 6000, about 166.67 kg/m³, for
+  Transportadora as for Correios: the carriers' standard, confirmed by sales
+  (2026-10-20). Transportadora had 300 kg/m³ (÷ 3333) until then, which
+  overstated it about 1.8 times. Transportadora compares the whole shipment's
+  totals; Correios each box. The admin area and the plan show the factor
+  with its divisor ("÷ 6.000"), the way carriers state it. Propostas saved
+  before keep the cubed weight they were saved with.
 - The "Envio" settings start folded on every screen size; they are set once
   and rarely change. "Frete" starts folded too, on new and saved propostas
   alike (Francesco, 2026-10-14); its summary line shows the carrier, the
@@ -292,11 +299,9 @@ Marked `TO CONFIRM` or `TO CALIBRATE` in `src/data/`. Ask before assuming. Once
 known, the admin sets them in the admin area; `src/data/` changes only if the
 factory values should change too.
 
-1. Which cubed-weight factor do the carriers in use apply? 300 kg/m³ is set;
-   parcel carriers often use 167.
-2. For Correios, is cubed weight ignored up to 5 kg or up to 10 kg? Sources
+1. For Correios, is cubed weight ignored up to 5 kg or up to 10 kg? Sources
    disagree; 5 is set because it never underestimates.
-3. How much volume is one extra box worth (`BOX_PENALTY_LITERS`)? It now only
+2. How much volume is one extra box worth (`BOX_PENALTY_LITERS`)? It now only
    affects the "balanced" alternative. A cost per box plus freight would
    replace the guess: every box can take a `costBRL` and the engine already
    has a lowest-cost priority.

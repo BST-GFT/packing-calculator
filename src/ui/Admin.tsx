@@ -314,6 +314,12 @@ interface Form {
 
 const optional = (n: number | undefined) => (n === undefined ? '' : num(n, 3))
 
+/** A cubage factor as carriers usually state it, by its divisor: "÷ 6.000". */
+function divisor(text: string): string | undefined {
+  const factor = parseDecimal(text)
+  return factor > 0 ? `Equivale a C × L × A (em cm) ÷ ${num(1_000_000 / factor, 0)}.` : undefined
+}
+
 function toForm(s: Settings): Form {
   return {
     boxes: s.boxes.map((b, i) => ({
@@ -491,6 +497,7 @@ function SettingsAdmin({ token, onLoggedOut }: { token: string; onLoggedOut: (e:
               suffix="kg/m³"
               value={m.cubage}
               onChange={(cubage) => changeMode(m.id, { cubage })}
+              hint={divisor(m.cubage)}
             />
             <Field
               label="Ignora cubagem até"
@@ -502,7 +509,8 @@ function SettingsAdmin({ token, onLoggedOut }: { token: string; onLoggedOut: (e:
         </fieldset>
       ))}
       <p className="hint">
-        Zero em maior lado ou soma: sem limite. O fator dos Correios é 166,667 kg/m³ (C × L × A ÷ 6000).
+        Zero em maior lado ou soma: sem limite. O padrão das transportadoras e dos Correios é
+        C × L × A (em cm) ÷ 6.000, ou seja, 166,667 kg/m³.
       </p>
 
       <h3>Frete</h3>

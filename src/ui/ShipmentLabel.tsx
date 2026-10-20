@@ -176,8 +176,8 @@ export function ShipmentLabel({
 
       <footer className="plan-foot">
         <p>
-          Critério: {PRIORITY_LABEL[priority].toLowerCase()}. Peso cubado a{' '}
-          {num(mode.cubage.kgPerM3, 0)} kg/m³ ({mode.label}).
+          Critério: {PRIORITY_LABEL[priority].toLowerCase()}. Peso cubado: C × L × A ÷{' '}
+          {num(1_000_000 / mode.cubage.kgPerM3, 0)} ({num(mode.cubage.kgPerM3, 2)} kg/m³, {mode.label}).
         </p>
         {alternatives.length > 0 && (
           <div className="alternatives">
